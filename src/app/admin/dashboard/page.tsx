@@ -421,7 +421,7 @@ export default function AdminDashboard() {
       const sanitizedName = libFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
       const storagePath = `resources/${Date.now()}_${sanitizedName}`;
       
-      const fileUrl = await uploadFile(libFile, 'library', storagePath);
+      const fileUrl = await uploadFile(libFile, 'Library', storagePath);
       
       clearInterval(interval);
       setLibProgress(95);
@@ -481,7 +481,7 @@ export default function AdminDashboard() {
       const sanitizedName = pqFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
       const storagePath = `past-questions/${Date.now()}_${sanitizedName}`;
       
-      const fileUrl = await uploadFile(pqFile, 'library', storagePath);
+      const fileUrl = await uploadFile(pqFile, 'Library', storagePath);
       
       clearInterval(interval);
       setPqProgress(95);

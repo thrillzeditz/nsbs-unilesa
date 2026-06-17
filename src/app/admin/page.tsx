@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Shield, Mail, Lock, AlertCircle, ArrowLeft } from 'lucide-react';
-import { supabase, getStaffAccounts } from '@/lib/db';
+import { supabase } from '@/lib/db';
 import Link from 'next/link';
 
 
@@ -30,67 +30,41 @@ export default function AdminLogin() {
     setErrorMsg(null);
 
     try {
-      // 1. Supabase Mode
-      if (supabase) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: password,
-        });
-
-        if (error) {
-          setErrorMsg(error.message);
-          setLoading(false);
-          return;
-        }
-
-        // Check if email exists in staff_accounts
-        const { data: staffData } = await supabase
-          .from('staff_accounts')
-          .select('*')
-          .eq('email', email.trim().toLowerCase())
-          .single();
-
-        sessionStorage.setItem('nsbs_admin_session', 'true');
-        if (staffData) {
-          sessionStorage.setItem('nsbs_admin_role', 'staff');
-          sessionStorage.setItem('nsbs_admin_name', staffData.name);
-          sessionStorage.setItem('nsbs_admin_email', staffData.email);
-        } else {
-          sessionStorage.setItem('nsbs_admin_role', 'super_admin');
-          sessionStorage.setItem('nsbs_admin_name', 'Super Admin');
-          sessionStorage.setItem('nsbs_admin_email', email.trim().toLowerCase());
-        }
-        router.push('/admin/dashboard');
-      } else {
-        // 2. Mock Mode Fallback
-        const mockEmail = 'admin@nsbs.unilesa.edu.ng';
-        const mockPass = 'admin123';
-        const trimmedEmail = email.trim().toLowerCase();
-
-        if (trimmedEmail === mockEmail && password === mockPass) {
-          sessionStorage.setItem('nsbs_admin_session', 'true');
-          sessionStorage.setItem('nsbs_admin_role', 'super_admin');
-          sessionStorage.setItem('nsbs_admin_name', 'Super Admin');
-          sessionStorage.setItem('nsbs_admin_email', trimmedEmail);
-          router.push('/admin/dashboard');
-        } else {
-          // Check mock staff accounts
-          const staffAccounts = await getStaffAccounts();
-          const matchedStaff = staffAccounts.find(
-            (sa) => sa.email.toLowerCase() === trimmedEmail && sa.password === password
-          );
-
-          if (matchedStaff) {
-            sessionStorage.setItem('nsbs_admin_session', 'true');
-            sessionStorage.setItem('nsbs_admin_role', 'staff');
-            sessionStorage.setItem('nsbs_admin_name', matchedStaff.name);
-            sessionStorage.setItem('nsbs_admin_email', matchedStaff.email);
-            router.push('/admin/dashboard');
-          } else {
-            setErrorMsg("Invalid administrator or staff credentials. Please check your inputs.");
-          }
-        }
+      if (!supabase) {
+        setErrorMsg('Supabase is not configured. Please contact the administrator.');
+        setLoading(false);
+        return;
       }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (error) {
+        setErrorMsg(error.message);
+        setLoading(false);
+        return;
+      }
+
+      // Check if email exists in staff_accounts to determine role
+      const { data: staffData } = await supabase
+        .from('staff_accounts')
+        .select('*')
+        .eq('email', email.trim().toLowerCase())
+        .single();
+
+      sessionStorage.setItem('nsbs_admin_session', 'true');
+      if (staffData) {
+        sessionStorage.setItem('nsbs_admin_role', 'staff');
+        sessionStorage.setItem('nsbs_admin_name', staffData.name);
+        sessionStorage.setItem('nsbs_admin_email', staffData.email);
+      } else {
+        sessionStorage.setItem('nsbs_admin_role', 'super_admin');
+        sessionStorage.setItem('nsbs_admin_name', 'Super Admin');
+        sessionStorage.setItem('nsbs_admin_email', email.trim().toLowerCase());
+      }
+      router.push('/admin/dashboard');
     } catch (err) {
       console.error(err);
       setErrorMsg("An unexpected authentication error occurred.");

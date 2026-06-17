@@ -232,3 +232,33 @@ CREATE TABLE IF NOT EXISTS staff_accounts (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- Seed Staff Accounts
+-- These are login credentials for staff portal access.
+-- Each staff member must also be registered in Supabase Auth (Authentication -> Users)
+-- with the SAME email and password for Supabase auth to work.
+INSERT INTO staff_accounts (name, email, password) VALUES
+('Dr Squalene', 'squalene@nsbs.unilesa.edu.ng', 'squalene'),
+('Hannah', 'hannah@nsbs.unilesa.edu.ng', 'hannah'),
+('Purest', 'purest@nsbs.unilesa.edu.ng', 'purest')
+ON CONFLICT (email) DO NOTHING;
+
+
+-- ====================================================================
+-- SEED DATA: Library Resources
+-- ====================================================================
+INSERT INTO library_resources (title, description, course_code, level, semester, file_url, file_type, file_size) VALUES
+('NSBS Constitution', 'The official constitution and guide outlining student association rights, responsibilities, and executives'' operational guidelines.', 'CONSTITUTION', 'misc', 'First', '#', 'PDF', '3.2 MB'),
+('The Scope of Biochemistry', 'An introductory review outlining biochemistry''s scientific branches, medical applications, and scope of study.', 'SCOPE', 'misc', 'First', '#', 'PDF', '2.1 MB'),
+('The Power of Discipline', 'An educational guide on study habits, academic discipline, and self-organization strategies for student success.', 'GUIDE', 'misc', 'First', '#', 'PDF', '1.5 MB'),
+('List of Area or Industry for SIWES', 'A comprehensive reference directory of recommended laboratories, biotech firms, and industrial placement sites for the SIWES scheme.', 'SIWES', 'misc', 'First', '#', 'PDF', '1.8 MB'),
+('CGPA Calculation', 'A comprehensive guide and worksheet explaining the step-by-step process of calculating Grade Point Average (GPA) and Cumulative Grade Point Average (CGPA) under the university grading system.', 'CGPA', 'misc', 'First', 'https://drive.google.com/drive/folders/13Je1yjc2_AAKaGLzm_iLv8Cy0XbNeQ4-', 'PDF', '2 KB')
+ON CONFLICT DO NOTHING;
+
+
+-- ====================================================================
+-- SEED DATA: Payment Records (Sample)
+-- ====================================================================
+INSERT INTO payment_records (surname, first_name, middle_name, email, mobile_number, matric_number, level, academic_session, due_item, amount_paid, payment_status) VALUES
+('Adeboye', 'Tosin', 'Emmanuel', 'tosin.adeboye@student.unilesa.edu.ng', '+2348055551234', '2023/1045', '300', '2025/2026', 'NSBS Departmental Due', 3000, 'Approved'),
+('Fagbemi', 'Esther', NULL, 'esther.fagbemi@student.unilesa.edu.ng', '+2349077775678', '2024/2056', '200', '2025/2026', 'NSBS Departmental Due', 3000, 'Pending Verification')
+ON CONFLICT DO NOTHING;

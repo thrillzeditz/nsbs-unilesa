@@ -17,7 +17,8 @@ import {
   getElections, addElection, updateElectionStatus, deleteElection,
   getCandidates, addCandidate, deleteCandidate,
   getVotes, getPaymentRecords, verifyPayment,
-  getStaffAccounts, addStaffAccount, deleteStaffAccount
+  getStaffAccounts, addStaffAccount, deleteStaffAccount,
+  uploadFile
 } from '@/lib/db';
 import { 
   SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, 
@@ -396,84 +397,118 @@ export default function AdminDashboard() {
   const handleLibUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!libTitle || !libCourse) return;
+    if (!libFile) {
+      alert("Please select a document file to upload.");
+      return;
+    }
 
     setLibUploading(true);
-    setLibProgress(0);
+    setLibProgress(10);
 
     const interval = setInterval(() => {
       setLibProgress(prev => {
-        if (prev >= 100) {
+        if (prev >= 90) {
           clearInterval(interval);
-          return 100;
+          return 90;
         }
         return prev + 10;
       });
     }, 100);
 
-    setTimeout(async () => {
-      try {
-        await addLibraryResource({
-          title: libTitle,
-          description: libDesc || 'No description provided.',
-          course_code: libCourse.toUpperCase(),
-          level: libLevel,
-          semester: libSemester,
-          file_url: '#', // Mock file URL
-          file_type: libType,
-          file_size: libSize
-        });
-        alert("Learning resource uploaded successfully!");
-        setLibTitle('');
-        setLibDesc('');
-        setLibCourse('');
-        setLibFile(null);
-        triggerRefresh();
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLibUploading(false);
-      }
-    }, 1200);
+    try {
+      // 1. Upload file to Supabase Storage in 'library' bucket
+      const fileExt = libFile.name.split('.').pop();
+      const sanitizedName = libFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = `resources/${Date.now()}_${sanitizedName}`;
+      
+      const fileUrl = await uploadFile(libFile, 'library', storagePath);
+      
+      clearInterval(interval);
+      setLibProgress(95);
+
+      // 2. Insert metadata record in Supabase Database
+      await addLibraryResource({
+        title: libTitle,
+        description: libDesc || 'No description provided.',
+        course_code: libCourse.toUpperCase(),
+        level: libLevel,
+        semester: libSemester,
+        file_url: fileUrl,
+        file_type: libType,
+        file_size: libSize
+      });
+
+      setLibProgress(100);
+      alert("Learning resource uploaded successfully!");
+      setLibTitle('');
+      setLibDesc('');
+      setLibCourse('');
+      setLibFile(null);
+      triggerRefresh();
+    } catch (err: any) {
+      clearInterval(interval);
+      console.error(err);
+      alert(`Upload failed: ${err.message || err}`);
+    } finally {
+      setLibUploading(false);
+    }
   };
 
   const handlePqUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pqTitle || !pqCourse) return;
+    if (!pqFile) {
+      alert("Please select an exam past question file to upload.");
+      return;
+    }
 
     setPqUploading(true);
-    setPqProgress(0);
+    setPqProgress(10);
 
     const interval = setInterval(() => {
       setPqProgress(prev => {
-        if (prev >= 100) {
+        if (prev >= 90) {
           clearInterval(interval);
-          return 100;
+          return 90;
         }
         return prev + 10;
       });
     }, 100);
 
-    setTimeout(async () => {
-      try {
-        await addPastQuestion({
-          title: pqTitle,
-          course_code: pqCourse.toUpperCase(),
-          level: pqLevel,
-          semester: pqSemester,
-          academic_session: pqSession,
-          file_url: '#'
-        });
-        alert("Exam past question uploaded successfully!");
-        setPqTitle('');
-        setPqCourse('');
-        setPqFile(null);
-        triggerRefresh();
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setPqUploading(false);
-      }
-    }, 1200);
+    try {
+      // 1. Upload file to Supabase Storage in 'library' bucket
+      const fileExt = pqFile.name.split('.').pop();
+      const sanitizedName = pqFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = `past-questions/${Date.now()}_${sanitizedName}`;
+      
+      const fileUrl = await uploadFile(pqFile, 'library', storagePath);
+      
+      clearInterval(interval);
+      setPqProgress(95);
+
+      // 2. Insert metadata record in Supabase Database
+      await addPastQuestion({
+        title: pqTitle,
+        course_code: pqCourse.toUpperCase(),
+        level: pqLevel,
+        semester: pqSemester,
+        academic_session: pqSession,
+        file_url: fileUrl
+      });
+
+      setPqProgress(100);
+      alert("Exam past question uploaded successfully!");
+      setPqTitle('');
+      setPqCourse('');
+      setPqFile(null);
+      triggerRefresh();
+    } catch (err: any) {
+      clearInterval(interval);
+      console.error(err);
+      alert(`Upload failed: ${err.message || err}`);
+    } finally {
+      setPqUploading(false);
+    }
   };
 
 

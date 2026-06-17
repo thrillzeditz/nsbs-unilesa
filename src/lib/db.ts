@@ -330,7 +330,11 @@ export async function getStaffAccounts(): Promise<StaffAccount[]> {
 
 export async function addStaffAccount(account: Omit<StaffAccount, 'id' | 'created_at'>): Promise<StaffAccount> {
   const db = getClient();
-  const { data, error } = await db.from('staff_accounts').insert(account).select().single();
+  const normalizedAccount = {
+    ...account,
+    email: account.email.trim().toLowerCase()
+  };
+  const { data, error } = await db.from('staff_accounts').insert(normalizedAccount).select().single();
   if (error) throw new Error(`Failed to add staff account: ${error.message}`);
   return data as StaffAccount;
 }

@@ -47,24 +47,34 @@ export default function AdminLogin() {
         return;
       }
 
+      const cleanEmail = email.trim().toLowerCase();
+
       // Check if email exists in staff_accounts to determine role
       const { data: staffData } = await supabase
         .from('staff_accounts')
         .select('*')
-        .eq('email', email.trim().toLowerCase())
-        .single();
+        .ilike('email', cleanEmail)
+        .maybeSingle();
 
-      sessionStorage.setItem('nsbs_admin_session', 'true');
-      if (staffData) {
+      if (cleanEmail === 'admin@nsbs.unilesa.edu.ng') {
+        sessionStorage.setItem('nsbs_admin_session', 'true');
+        sessionStorage.setItem('nsbs_admin_role', 'super_admin');
+        sessionStorage.setItem('nsbs_admin_name', 'Super Admin');
+        sessionStorage.setItem('nsbs_admin_email', cleanEmail);
+        router.push('/admin/dashboard');
+      } else if (staffData) {
+        sessionStorage.setItem('nsbs_admin_session', 'true');
         sessionStorage.setItem('nsbs_admin_role', 'staff');
         sessionStorage.setItem('nsbs_admin_name', staffData.name);
         sessionStorage.setItem('nsbs_admin_email', staffData.email);
+        router.push('/admin/dashboard');
       } else {
-        sessionStorage.setItem('nsbs_admin_role', 'super_admin');
-        sessionStorage.setItem('nsbs_admin_name', 'Super Admin');
-        sessionStorage.setItem('nsbs_admin_email', email.trim().toLowerCase());
+        // Unrecognized account - sign them out and show error
+        await supabase.auth.signOut();
+        setErrorMsg("Access Denied: Your account is not registered as a staff member.");
+        setLoading(false);
+        return;
       }
-      router.push('/admin/dashboard');
     } catch (err) {
       console.error(err);
       setErrorMsg("An unexpected authentication error occurred.");

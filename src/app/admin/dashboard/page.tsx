@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Shield, Landmark, BookOpen, CreditCard, Newspaper, Calendar, MessageSquare, 
   Users, BarChart3, LogOut, Check, X, Plus, Trash2, Edit3, Settings, 
-  Download, FileText, Vote, Sparkles, User, Mail, Info, Clock 
+  Download, FileText, Vote, Sparkles, User, Mail, Info, Clock, RefreshCw 
 } from 'lucide-react';
 import { 
   getSettings, updateSettings, getSocialLinks, updateSocialLink,
@@ -24,6 +24,10 @@ import {
   SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, 
   NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote as VoteType, PaymentRecord, StaffAccount 
 } from '@/lib/types';
+import { 
+  getDemoElectionStats, resetDemoElectionState, MOCK_POSITIONS,
+  DemoElectionStats 
+} from '@/lib/electionDemoData';
 
 
 const DEFAULT_COURSE_FOLDERS: Record<string, Record<string, string[]>> = {
@@ -88,6 +92,25 @@ export default function AdminDashboard() {
   const [selectedElectionId, setSelectedElectionId] = useState<string>('');
   const [electionCandidates, setElectionCandidates] = useState<Candidate[]>([]);
   const [electionVotes, setElectionVotes] = useState<VoteType[]>([]);
+
+  // Demo Election 2026 State
+  const [demoStats, setDemoStats] = useState<DemoElectionStats>(getDemoElectionStats());
+
+  useEffect(() => {
+    const handleDemoUpdate = () => {
+      setDemoStats(getDemoElectionStats());
+    };
+    window.addEventListener('demoElectionVotesUpdated', handleDemoUpdate);
+    return () => window.removeEventListener('demoElectionVotesUpdated', handleDemoUpdate);
+  }, []);
+
+  const handleResetDemoElection = () => {
+    if (confirm("Are you sure you want to reset all demo election votes back to default baseline?")) {
+      resetDemoElectionState();
+      setDemoStats(getDemoElectionStats());
+      alert("Election demo data and ballots have been reset successfully!");
+    }
+  };
 
   // Refresh trigger state
   const [refreshKey, setRefreshKey] = useState(0);
@@ -918,6 +941,70 @@ export default function AdminDashboard() {
                       </div>
                     </div>
 
+                  </div>
+
+                  {/* NSBS ELECTION 2026 LIVE METRICS BANNER */}
+                  <div className="bg-slate-900 text-white rounded-3xl p-6 border border-slate-800 shadow-lg space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950 px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                            LIVE AUDIT
+                          </span>
+                          <span className="text-xs font-bold text-slate-400">NSBS ELECTION 2026</span>
+                        </div>
+                        <h4 className="text-lg font-extrabold text-white">
+                          Departmental Online Election Real-time Statistics
+                        </h4>
+                      </div>
+                      
+                      <button
+                        onClick={() => setActiveTab('events')}
+                        className="px-4 py-2 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                      >
+                        <Vote className="w-4 h-4" /> View Full Election Audit
+                      </button>
+                    </div>
+
+                    {/* 6 Core Metrics Required */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Registered Voters</span>
+                        <span className="text-lg font-extrabold text-white">{demoStats.registered_voters}</span>
+                        <span className="text-[9px] text-slate-500 block">Biochemistry Dept</span>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Eligible Voters</span>
+                        <span className="text-lg font-extrabold text-emerald-400">{demoStats.eligible_voters}</span>
+                        <span className="text-[9px] text-slate-500 block">Accredited Roster</span>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Votes Cast</span>
+                        <span className="text-lg font-extrabold text-accent">{demoStats.votes_cast}</span>
+                        <span className="text-[9px] text-slate-500 block">Ballots Vault</span>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Remaining Voters</span>
+                        <span className="text-lg font-extrabold text-slate-300">{demoStats.remaining_voters}</span>
+                        <span className="text-[9px] text-slate-500 block">Pending Ballots</span>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Voter Turnout</span>
+                        <span className="text-lg font-extrabold text-emerald-300">{demoStats.turnout_percentage}%</span>
+                        <div className="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                          <div className="bg-emerald-400 h-full rounded-full transition-all duration-500" style={{ width: `${demoStats.turnout_percentage}%` }} />
+                        </div>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl flex flex-col justify-between">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Election Status</span>
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-extrabold text-emerald-300 uppercase">Voting Open</span>
+                        </div>
+                        <span className="text-[8px] text-slate-400 block mt-1">2026/2027 Tenure</span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Recent Dues Records Table */}
@@ -2022,8 +2109,158 @@ export default function AdminDashboard() {
           {/* PANEL 7: EVENTS & ELECTIONS */}
           {/* ========================================== */}
           {activeTab === 'events' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               
+              {/* ========================================================================= */}
+              {/* NSBS ELECTION 2026 - DEMO AUDIT & REAL-TIME TALLY PANEL */}
+              {/* ========================================================================= */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                
+                {/* Header with Demo Reset action */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        DEMO PRESENTATION AUDIT
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">NSBS ELECTION 2026</span>
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-extrabold text-primary tracking-tight">
+                      Official E-Voting Statistics & Ballot Tally Sheets
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Live audit stream for the NSBS Staff Adviser presentation. Demonstrating student accreditation and anonymous ballot vault tallies.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <button
+                      onClick={handleResetDemoElection}
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl transition-premium flex items-center gap-1.5 cursor-pointer border border-slate-200"
+                      title="Reset test votes back to default state"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Reset Demo Votes
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6 Core Statistics Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Registered Voters</span>
+                    <span className="text-xl font-extrabold text-slate-900">{demoStats.registered_voters}</span>
+                    <span className="text-[10px] text-slate-500 block">Total Department</span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Eligible Voters</span>
+                    <span className="text-xl font-extrabold text-emerald-700">{demoStats.eligible_voters}</span>
+                    <span className="text-[10px] text-emerald-600 block">Accredited Roster</span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Votes Cast</span>
+                    <span className="text-xl font-extrabold text-accent">{demoStats.votes_cast}</span>
+                    <span className="text-[10px] text-amber-700 block">Secret Ballots Logged</span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Remaining Voters</span>
+                    <span className="text-xl font-extrabold text-slate-600">{demoStats.remaining_voters}</span>
+                    <span className="text-[10px] text-slate-500 block">Pending Participation</span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Turnout Rate</span>
+                    <span className="text-xl font-extrabold text-primary">{demoStats.turnout_percentage}%</span>
+                    <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1 overflow-hidden">
+                      <div className="bg-secondary h-full rounded-full transition-all duration-700" style={{ width: `${demoStats.turnout_percentage}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Election Status</span>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                      <span className="text-xs font-extrabold text-emerald-800 uppercase">Voting Open</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block">Live & Accessible</span>
+                  </div>
+                </div>
+
+                {/* Privacy Architecture Notice */}
+                <div className="bg-slate-900 text-white p-4.5 rounded-2xl flex items-start gap-3 text-xs">
+                  <Shield className="w-5 h-5 text-secondary shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <span className="font-extrabold text-slate-200 text-xs uppercase tracking-wide">
+                      Privacy & Audit Separation Guarantee:
+                    </span>
+                    <p className="text-slate-300 leading-relaxed">
+                      To preserve ballot secrecy, student identities and matriculation numbers are recorded strictly for accreditation and one-vote verification. Individual candidate choices are stored separately and anonymously in the election ballot vault without any voter identifier.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live Candidate Tallies Across All 7 Offices */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
+                      <BarChart3 className="w-4.5 h-4.5 text-secondary" /> Live Anonymized Candidate Tallies (All 7 Offices)
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">{demoStats.votes_cast} Ballots Recorded</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {MOCK_POSITIONS.map((pos) => {
+                      const totalPosVotes = pos.candidates.reduce((sum, c) => sum + (demoStats.candidate_tallies[c.id] || 0), 0);
+
+                      return (
+                        <div key={pos.id} className="bg-slate-50 border border-slate-200 p-4.5 rounded-2xl space-y-3 shadow-2xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-extrabold text-primary uppercase bg-white border border-slate-200 px-2.5 py-0.5 rounded-md">
+                              Office: {pos.title}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500">
+                              {totalPosVotes} votes cast
+                            </span>
+                          </div>
+
+                          <div className="space-y-3 pt-1">
+                            {pos.candidates.map((candidate) => {
+                              const voteCount = demoStats.candidate_tallies[candidate.id] || 0;
+                              const percentage = totalPosVotes > 0 ? Math.round((voteCount / totalPosVotes) * 100) : 0;
+
+                              return (
+                                <div key={candidate.id} className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <div className="flex items-center gap-2 font-bold text-slate-800">
+                                      <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-200 shrink-0">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={candidate.photo_url} alt={candidate.name} className="w-full h-full object-cover" />
+                                      </div>
+                                      <span>{candidate.name} ({candidate.level})</span>
+                                    </div>
+                                    <span className="font-extrabold text-slate-900">{voteCount} votes ({percentage}%)</span>
+                                  </div>
+                                  <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                                    <div 
+                                      className="bg-secondary h-full rounded-full transition-all duration-700"
+                                      style={{ width: `${percentage}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              </div>
+
               {/* Event Creation Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 

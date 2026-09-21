@@ -7,8 +7,8 @@ import {
   Info, ExternalLink, Award, FileText, ChevronRight
 } from 'lucide-react';
 import { 
-  MOCK_STUDENTS, MOCK_POSITIONS, DemoStudent, DemoCandidate,
-  verifyStudentMatric, submitDemoVote, getDemoElectionStats, resetDemoElectionState
+  MOCK_POSITIONS, DemoStudent, DemoCandidate,
+  verifyStudentMatric, submitDemoVote, resetDemoElectionState
 } from '@/lib/electionDemoData';
 
 type PortalStep = 'landing' | 'verify' | 'verified_confirm' | 'already_voted' | 'voting' | 'review' | 'success';
@@ -23,16 +23,6 @@ export default function ElectionPortal() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [referenceCode, setReferenceCode] = useState<string>('');
-  const [stats, setStats] = useState(getDemoElectionStats());
-
-  // Listen for demo storage updates
-  useEffect(() => {
-    const handleUpdate = () => {
-      setStats(getDemoElectionStats());
-    };
-    window.addEventListener('demoElectionVotesUpdated', handleUpdate);
-    return () => window.removeEventListener('demoElectionVotesUpdated', handleUpdate);
-  }, []);
 
   // 1. VERIFICATION HANDLER
   const handleVerifyMatric = (matricToTest?: string) => {
@@ -201,21 +191,6 @@ export default function ElectionPortal() {
             </ul>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-3 gap-3 p-4 bg-slate-900 text-white rounded-2xl text-center">
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Accredited Seats</span>
-              <span className="text-base sm:text-lg font-extrabold text-emerald-400">7 Offices</span>
-            </div>
-            <div className="border-x border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Turnout</span>
-              <span className="text-base sm:text-lg font-extrabold text-white">{stats.turnout_percentage}%</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Votes Logged</span>
-              <span className="text-base sm:text-lg font-extrabold text-accent">{stats.votes_cast}</span>
-            </div>
-          </div>
 
           {/* Primary Action Button */}
           <div className="pt-2">
@@ -307,34 +282,6 @@ export default function ElectionPortal() {
             </button>
           </form>
 
-          {/* Staff Adviser Demo Helper Shortcuts */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-accent" /> Demo Quick Test Records
-              </span>
-              <span className="text-[10px] text-slate-400">Click to auto-fill</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {MOCK_STUDENTS.slice(0, 4).map(s => (
-                <button
-                  key={s.matric_number}
-                  type="button"
-                  onClick={() => {
-                    setMatricInput(s.matric_number);
-                    handleVerifyMatric(s.matric_number);
-                  }}
-                  className="text-left p-2.5 bg-white hover:bg-emerald-50/50 hover:border-emerald-300 border border-slate-200 rounded-xl transition-premium cursor-pointer group"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">{s.matric_number}</span>
-                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{s.level}</span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 truncate">{s.name}</div>
-                </button>
-              ))}
-            </div>
-          </div>
 
         </div>
       )}
@@ -854,22 +801,13 @@ export default function ElectionPortal() {
             </p>
           </div>
 
-          {/* Presentation Reset / Return Options */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+          {/* Return Options */}
+          <div className="pt-2">
             <button
               onClick={handleResetFlow}
-              className="sm:w-1/2 py-3.5 bg-primary hover:bg-slate-800 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow transition-premium flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3.5 bg-primary hover:bg-slate-800 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow transition-premium flex items-center justify-center gap-2 cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" /> Return to Portal Home
-            </button>
-            <button
-              onClick={() => {
-                handleResetFlow();
-                setCurrentStep('verify');
-              }}
-              className="sm:w-1/2 py-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold text-xs sm:text-sm rounded-2xl transition-premium flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4 text-secondary" /> Test Another Student (Demo Mode)
             </button>
           </div>
 

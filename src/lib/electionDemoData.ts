@@ -45,6 +45,8 @@ export interface DemoElectionStats {
   registered_voters: number;
   eligible_voters: number;
   votes_cast: number;
+  accredited_voters: number;
+  yet_to_vote: number;
   remaining_voters: number;
   turnout_percentage: number;
   status: 'open' | 'closed' | 'upcoming';
@@ -511,7 +513,7 @@ export function getDemoElectionStats(): DemoElectionStats {
   const votesCastCount = voters.length;
   const eligibleVoters = TOTAL_DEPARTMENT_REGISTERED_STUDENTS;
   const remainingVoters = Math.max(0, eligibleVoters - votesCastCount);
-  const turnoutPercentage = Math.round((votesCastCount / eligibleVoters) * 100);
+  const turnoutPercentage = eligibleVoters > 0 ? Number(((votesCastCount / eligibleVoters) * 100).toFixed(2)) : 0;
 
   // Compute candidate tallies
   const tallies: Record<string, number> = {};
@@ -523,6 +525,8 @@ export function getDemoElectionStats(): DemoElectionStats {
     registered_voters: TOTAL_DEPARTMENT_REGISTERED_STUDENTS,
     eligible_voters: eligibleVoters,
     votes_cast: votesCastCount,
+    accredited_voters: votesCastCount,
+    yet_to_vote: remainingVoters,
     remaining_voters: remainingVoters,
     turnout_percentage: turnoutPercentage,
     status: 'open',

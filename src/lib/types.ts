@@ -103,8 +103,78 @@ export interface Vote {
   id: string;
   election_id: string;
   candidate_id: string;
+  matric_number?: string;
+  created_at: string;
+}
+
+export interface ElectionVoter {
+  id: string;
+  election_id: string;
   matric_number: string;
-  email: string;
+  full_name?: string;
+  level?: string;
+  department?: string;
+  is_eligible: boolean;
+  created_at?: string;
+  has_voted?: boolean;
+  voted_at?: string;
+}
+
+export interface VoterAccreditation {
+  election_id: string;
+  matric_number: string;
+  reference_code: string;
+  accredited_at: string;
+  voted_at: string;
+}
+
+export interface ElectionBallot {
+  id: string;
+  election_id: string;
+  position_id: string;
+  candidate_id: string;
+  created_at: string;
+}
+
+export interface ElectionCandidateTally {
+  candidate_id: string;
+  candidate_name: string;
+  position_id: string;
+  votes_received: number;
+  percentage: number;
+}
+
+export interface ElectionPositionSummary {
+  position_id: string;
+  position_title: string;
+  total_votes_for_position: number;
+  candidates: ElectionCandidateTally[];
+}
+
+export interface ElectionCollationSummary {
+  election_id: string;
+  election_title: string;
+  status: 'upcoming' | 'open' | 'closed';
+  created_at?: string;
+  registered_voters: number;
+  eligible_voters: number;
+  votes_cast: number;
+  accredited_voters: number;
+  total_ballots_cast: number;
+  yet_to_vote: number;
+  remaining_voters: number;
+  turnout_percentage: number;
+  positions: ElectionPositionSummary[];
+  candidate_tallies: Record<string, number>;
+}
+
+export interface ElectionAuditLog {
+  id: string;
+  election_id?: string;
+  actor_email: string;
+  action: 'ELECTION_CREATED' | 'ELECTION_OPENED' | 'ELECTION_CLOSED' | 'ELECTION_DELETED' | 'CANDIDATE_ADDED' | 'CANDIDATE_REMOVED' | 'RESULTS_EXPORTED' | 'DEMO_RESET' | 'ADMIN_AUTH';
+  details?: Record<string, unknown>;
+  ip_address?: string;
   created_at: string;
 }
 

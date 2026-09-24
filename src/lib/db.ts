@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount } from './types';
+import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount, ElectionCollationSummary, ElectionAuditLog, ElectionVoter } from './types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -256,27 +256,323 @@ export async function deleteCandidate(id: string): Promise<boolean> {
 }
 
 // ==========================================
-// Votes
+// Election Voters (Roster Management)
 // ==========================================
-export async function getVotes(electionId?: string): Promise<Vote[]> {
+
+/**
+ * Fetch registered & eligible voters for an election, including their accreditation (voted) status
+ * PRIVACY GUARANTEE: Only shows whether voter has voted, NEVER shows their ballot choices.
+ */
+export async function getElectionVoters(electionId: string): Promise<ElectionVoter[]> {
   const db = getClient();
-  let query = db.from('votes').select('*');
-  if (electionId) query = query.eq('election_id', electionId);
-  const { data, error } = await query;
-  if (error) throw new Error(`Failed to fetch votes: ${error.message}`);
-  return data as Vote[];
+  const { data: voters, error: votersError } = await db
+    .from('election_voters')
+    .select('*')
+    .eq('election_id', electionId)
+    .order('matric_number', { ascending: true });
+
+  if (votersError) {
+    console.error('Failed to fetch election voters:', votersError.message);
+    return [];
+  }
+
+  // Get accredited matric numbers to annotate voted status
+  const { data: accs } = await db
+    .from('voter_accreditations')
+    .select('matric_number, voted_at')
+    .eq('election_id', electionId);
+
+  const accMap = new Map<string, string>();
+  if (accs) {
+    accs.forEach(a => accMap.set(a.matric_number.toUpperCase().trim(), a.voted_at));
+  }
+
+  return (voters || []).map(v => ({
+    ...v,
+    has_voted: accMap.has(v.matric_number.toUpperCase().trim()),
+    voted_at: accMap.get(v.matric_number.toUpperCase().trim())
+  })) as ElectionVoter[];
 }
 
-export async function castVote(vote: Omit<Vote, 'id' | 'created_at'>): Promise<{ success: boolean; error?: string }> {
+export async function addElectionVoter(voter: Omit<ElectionVoter, 'id' | 'created_at'>): Promise<ElectionVoter> {
   const db = getClient();
-  const { error } = await db.from('votes').insert({ ...vote }).select();
+  const normalizedMatric = voter.matric_number.trim().toUpperCase();
+  const { data, error } = await db
+    .from('election_voters')
+    .insert({
+      election_id: voter.election_id,
+      matric_number: normalizedMatric,
+      full_name: voter.full_name?.trim() || null,
+      level: voter.level || null,
+      department: voter.department || 'Biochemistry',
+      is_eligible: voter.is_eligible !== false
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to add voter: ${error.message}`);
+  return data as ElectionVoter;
+}
+
+export async function batchAddElectionVoters(
+  electionId: string, 
+  voters: { matric_number: string; full_name?: string; level?: string; department?: string; is_eligible?: boolean }[]
+): Promise<number> {
+  const db = getClient();
+  const records = voters
+    .map(v => ({
+      election_id: electionId,
+      matric_number: v.matric_number.trim().toUpperCase(),
+      full_name: v.full_name?.trim() || null,
+      level: v.level || null,
+      department: v.department || 'Biochemistry',
+      is_eligible: v.is_eligible !== false
+    }))
+    .filter(v => v.matric_number.length > 0);
+
+  if (records.length === 0) return 0;
+
+  const { data, error } = await db
+    .from('election_voters')
+    .upsert(records, { onConflict: 'election_id,matric_number' })
+    .select();
+
+  if (error) throw new Error(`Batch upload failed: ${error.message}`);
+  return data ? data.length : records.length;
+}
+
+export async function deleteElectionVoter(id: string): Promise<boolean> {
+  const db = getClient();
+  const { error } = await db.from('election_voters').delete().eq('id', id);
+  if (error) throw new Error(`Failed to delete voter: ${error.message}`);
+  return true;
+}
+
+export async function toggleElectionVoterEligibility(id: string, isEligible: boolean): Promise<ElectionVoter> {
+  const db = getClient();
+  const { data, error } = await db
+    .from('election_voters')
+    .update({ is_eligible: isEligible })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update voter eligibility: ${error.message}`);
+  return data as ElectionVoter;
+}
+
+// ==========================================
+// Election Security, Accreditation & Atomic Balloting (RPC Layer)
+// ==========================================
+
+/**
+ * Check if a matriculation number has already voted/accredited in this election
+ */
+export async function checkVoterAccreditationStatus(electionId: string, matricNumber: string): Promise<{ accredited: boolean; referenceCode?: string }> {
+  const db = getClient();
+  const normalizedMatric = matricNumber.trim().toUpperCase();
+  const { data, error } = await db
+    .from('voter_accreditations')
+    .select('reference_code')
+    .eq('election_id', electionId)
+    .eq('matric_number', normalizedMatric)
+    .maybeSingle();
+
   if (error) {
-    if (error.code === '23505') { // Unique constraint violation
-      return { success: false, error: "You have already voted in this election!" };
-    }
+    console.error('Accreditation check error:', error.message);
+    return { accredited: false };
+  }
+
+  return { 
+    accredited: !!data,
+    referenceCode: data?.reference_code
+  };
+}
+
+/**
+ * Submit full ballot atomically via PostgreSQL stored procedure.
+ * Guarantees all-or-nothing submission and locks voter out from duplicate attempts.
+ */
+export async function submitElectionBallotRPC(
+  electionId: string,
+  matricNumber: string,
+  ballotItems: { position_id: string; candidate_id: string }[],
+  referenceCode: string
+): Promise<{ success: boolean; referenceCode?: string; error?: string }> {
+  const db = getClient();
+  const normalizedMatric = matricNumber.trim().toUpperCase();
+
+  const { data, error } = await db.rpc('submit_election_ballot', {
+    p_election_id: electionId,
+    p_matric_number: normalizedMatric,
+    p_ballot_items: ballotItems,
+    p_reference_code: referenceCode
+  });
+
+  if (error) {
     return { success: false, error: error.message };
   }
-  return { success: true };
+
+  if (data && data.success === false) {
+    return { success: false, error: data.error || 'Failed to submit ballot.' };
+  }
+
+  return {
+    success: true,
+    referenceCode: data?.reference_code || referenceCode
+  };
+}
+
+/**
+ * Fetch neutral certified election results computed strictly from anonymous ballots.
+ */
+export async function getElectionResultsRPC(electionId: string): Promise<ElectionCollationSummary | null> {
+  const db = getClient();
+  
+  // Try calling the SQL RPC procedure first
+  try {
+    const { data, error } = await db.rpc('get_election_results', {
+      p_election_id: electionId
+    });
+
+    if (!error && data && !data.error) {
+      return data as ElectionCollationSummary;
+    }
+  } catch (err) {
+    console.warn('RPC get_election_results failed, falling back to direct table queries:', err);
+  }
+
+  // Fallback: Compute authoritative statistics directly via SQL queries
+  try {
+    const { data: electData, error: electErr } = await db.from('elections').select('*').eq('id', electionId).single();
+    if (electErr || !electData) return null;
+
+    // 1. Registered and eligible voter counts
+    const { count: regCount } = await db
+      .from('election_voters')
+      .select('*', { count: 'exact', head: true })
+      .eq('election_id', electionId);
+
+    const { count: eligCount } = await db
+      .from('election_voters')
+      .select('*', { count: 'exact', head: true })
+      .eq('election_id', electionId)
+      .eq('is_eligible', true);
+
+    // 2. Accredited votes cast
+    const { count: accCount } = await db
+      .from('voter_accreditations')
+      .select('*', { count: 'exact', head: true })
+      .eq('election_id', electionId);
+
+    const votesCast = accCount || 0;
+    const registeredVoters = (regCount && regCount > 0) ? regCount : votesCast;
+    const eligibleVoters = (eligCount && eligCount > 0) ? eligCount : registeredVoters;
+    const yetToVote = Math.max(0, eligibleVoters - votesCast);
+    const turnoutPct = eligibleVoters > 0 ? Number(((votesCast / eligibleVoters) * 100).toFixed(2)) : 0;
+
+    // 3. Candidates and Ballots
+    const { data: candidates } = await db.from('candidates').select('*').eq('election_id', electionId);
+    const { data: ballots } = await db.from('election_ballots').select('position_id, candidate_id').eq('election_id', electionId);
+
+    const distinctPositions = Array.from(new Set((candidates || []).map(c => c.position)));
+    const candidateTallies: Record<string, number> = {};
+    (ballots || []).forEach(b => {
+      candidateTallies[b.candidate_id] = (candidateTallies[b.candidate_id] || 0) + 1;
+    });
+
+    const positions = distinctPositions.map(posTitle => {
+      const posCandidates = (candidates || []).filter(c => c.position === posTitle);
+      const posBallots = (ballots || []).filter(b => b.position_id === posTitle);
+      const totalPosVotes = posBallots.length;
+
+      return {
+        position_id: posTitle,
+        position_title: posTitle,
+        total_votes_for_position: totalPosVotes,
+        candidates: posCandidates.map(c => {
+          const votesReceived = candidateTallies[c.id] || 0;
+          const percentage = totalPosVotes > 0 ? Number(((votesReceived / totalPosVotes) * 100).toFixed(2)) : 0;
+          return {
+            candidate_id: c.id,
+            candidate_name: c.name,
+            position_id: posTitle,
+            votes_received: votesReceived,
+            percentage
+          };
+        })
+      };
+    });
+
+    return {
+      election_id: electData.id,
+      election_title: electData.title,
+      status: electData.status,
+      created_at: electData.created_at,
+      registered_voters: registeredVoters,
+      eligible_voters: eligibleVoters,
+      votes_cast: votesCast,
+      accredited_voters: votesCast,
+      total_ballots_cast: votesCast,
+      yet_to_vote: yetToVote,
+      remaining_voters: yetToVote,
+      turnout_percentage: turnoutPct,
+      positions,
+      candidate_tallies: candidateTallies
+    };
+  } catch (fallbackErr) {
+    console.error('Failed computing fallback election results:', fallbackErr);
+    return null;
+  }
+}
+
+/**
+ * Record an administrative audit event without voter linkage
+ */
+export async function logElectionAuditEvent(
+  electionId: string | undefined,
+  actorEmail: string,
+  action: ElectionAuditLog['action'],
+  details?: Record<string, unknown>
+): Promise<void> {
+  try {
+    const db = getClient();
+    await db.from('election_audit_logs').insert({
+      election_id: electionId || null,
+      actor_email: actorEmail,
+      action,
+      details: details || {}
+    });
+  } catch (err) {
+    console.error('Failed to write election audit log:', err);
+  }
+}
+
+/**
+ * Fetch election audit logs for administrative review
+ */
+export async function getElectionAuditLogs(electionId?: string): Promise<ElectionAuditLog[]> {
+  const db = getClient();
+  let query = db.from('election_audit_logs').select('*').order('created_at', { ascending: false });
+  if (electionId) query = query.eq('election_id', electionId);
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch audit logs: ${error.message}`);
+  return (data || []) as ElectionAuditLog[];
+}
+
+/**
+ * Legacy getVotes query for backwards compatibility (queries ballots without voter identity)
+ */
+export async function getVotes(electionId?: string): Promise<Vote[]> {
+  const db = getClient();
+  let query = db.from('election_ballots').select('id, election_id, candidate_id, created_at');
+  if (electionId) query = query.eq('election_id', electionId);
+  const { data, error } = await query;
+  if (error) {
+    // If table not migrated yet, attempt fallback
+    return [];
+  }
+  return (data || []) as Vote[];
 }
 
 // ==========================================

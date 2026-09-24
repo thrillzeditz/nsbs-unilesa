@@ -10,6 +10,9 @@ import {
   MOCK_POSITIONS, DemoStudent, DemoCandidate,
   verifyStudentMatric, submitDemoVote, resetDemoElectionState
 } from '@/lib/electionDemoData';
+import { 
+  checkVoterAccreditationStatus, submitElectionBallotRPC, getElections
+} from '@/lib/db';
 
 type PortalStep = 'landing' | 'verify' | 'verified_confirm' | 'already_voted' | 'voting' | 'review' | 'success';
 
@@ -23,9 +26,26 @@ export default function ElectionPortal() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [referenceCode, setReferenceCode] = useState<string>('');
+  const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
+
+  // Check for active live election on mount
+  useEffect(() => {
+    async function loadActiveElection() {
+      try {
+        const elections = await getElections();
+        const openElection = elections.find(e => e.status === 'open');
+        if (openElection) {
+          setActiveElectionId(openElection.id);
+        }
+      } catch (err) {
+        // Fallback to local mode silently
+      }
+    }
+    loadActiveElection();
+  }, []);
 
   // 1. VERIFICATION HANDLER
-  const handleVerifyMatric = (matricToTest?: string) => {
+  const handleVerifyMatric = async (matricToTest?: string) => {
     const value = matricToTest || matricInput;
     if (!value.trim()) {
       setVerificationError('Please enter your matriculation number.');
@@ -33,6 +53,26 @@ export default function ElectionPortal() {
     }
 
     setVerificationError(null);
+
+    // If live election is connected, check live accreditation first
+    if (activeElectionId) {
+      try {
+        const accCheck = await checkVoterAccreditationStatus(activeElectionId, value);
+        if (accCheck.accredited) {
+          setVerifiedStudent({
+            matric_number: value.toUpperCase(),
+            name: 'Accredited Voter',
+            level: 'Undergraduate',
+            department: 'Biochemistry'
+          });
+          setCurrentStep('already_voted');
+          return;
+        }
+      } catch (err) {
+        // Fall back to local check
+      }
+    }
+
     const result = verifyStudentMatric(value);
 
     if (!result.success) {
@@ -68,7 +108,6 @@ export default function ElectionPortal() {
     
     if (unselectedPositions.length > 0) {
       setValidationError(`Please select a candidate for all positions. Missing: ${unselectedPositions.map(p => p.title).join(', ')}.`);
-      // Scroll to the first missing element if possible
       return;
     }
 
@@ -76,12 +115,48 @@ export default function ElectionPortal() {
     setCurrentStep('review');
   };
 
-  // 4. SUBMIT BALLOT
+  // 4. ATOMIC SUBMISSION HANDLER
   const handleConfirmSubmit = async () => {
     if (!verifiedStudent) return;
     setIsSubmitting(true);
 
     try {
+      const generatedRef = `NSBS-2026-${Math.floor(1000 + Math.random() * 9000)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      
+      // If live election active, attempt atomic RPC
+      if (activeElectionId) {
+        const ballotItems = Object.entries(selectedCandidates).map(([posTitle, candId]) => ({
+          position_id: posTitle,
+          candidate_id: candId
+        }));
+
+        const rpcRes = await submitElectionBallotRPC(
+          activeElectionId,
+          verifiedStudent.matric_number,
+          ballotItems,
+          generatedRef
+        );
+
+        if (rpcRes.success) {
+          // Also sync local demo engine state for UI consistency
+          await submitDemoVote(verifiedStudent.matric_number, selectedCandidates);
+          setReferenceCode(rpcRes.referenceCode || generatedRef);
+          setShowConfirmModal(false);
+          setCurrentStep('success');
+          return;
+        } else if (rpcRes.error && rpcRes.error.toLowerCase().includes('already voted')) {
+          alert('This matriculation number has already voted in this election.');
+          setShowConfirmModal(false);
+          setCurrentStep('already_voted');
+          return;
+        } else if (rpcRes.error) {
+          alert(`Submission rejected: ${rpcRes.error}`);
+          setShowConfirmModal(false);
+          return;
+        }
+      }
+
+      // Fallback to local demo repository
       const res = await submitDemoVote(verifiedStudent.matric_number, selectedCandidates);
       if (res.success && res.referenceCode) {
         setReferenceCode(res.referenceCode);
@@ -92,15 +167,15 @@ export default function ElectionPortal() {
         setShowConfirmModal(false);
       }
     } catch (err) {
-      console.error(err);
-      alert('An error occurred while submitting vote.');
+      console.error('Submission error:', err);
+      alert('An error occurred while submitting your ballot.');
       setShowConfirmModal(false);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Reset entire flow for demonstration
+  // Reset entire flow for next voter
   const handleResetFlow = () => {
     setCurrentStep('landing');
     setMatricInput('');

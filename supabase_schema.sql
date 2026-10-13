@@ -265,11 +265,16 @@ DECLARE
     v_roster_count int;
     v_is_eligible boolean;
 BEGIN
-    -- Normalize matric number
-    v_norm_matric := UPPER(TRIM(p_matric_number));
+    -- Normalize matric number (remove all spaces and convert to uppercase)
+    v_norm_matric := REGEXP_REPLACE(UPPER(TRIM(p_matric_number)), '\s+', '', 'g');
 
     IF v_norm_matric IS NULL OR LENGTH(v_norm_matric) = 0 THEN
         RETURN jsonb_build_object('success', false, 'error', 'Invalid or missing matriculation number.');
+    END IF;
+
+    -- SECURITY ENFORCER: Electoral Body Exemption Restriction
+    IF v_norm_matric IN ('2023/0445', '2023/1075', '2025/7936', '2024/1589', '2023/1002') THEN
+        RETURN jsonb_build_object('success', false, 'error', 'ELECTORAL BODY ARE EXEMPTED FROM VOTING');
     END IF;
 
     -- 1. Verify election status is currently 'open'

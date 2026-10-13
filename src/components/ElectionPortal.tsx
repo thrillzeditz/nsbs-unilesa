@@ -13,6 +13,7 @@ import {
 import { 
   checkVoterAccreditationStatus, submitElectionBallotRPC, getElections
 } from '@/lib/db';
+import { isElectoralBodyExempt, EXEMPTION_MESSAGE } from '@/lib/electionSecurity';
 
 type PortalStep = 'landing' | 'verify' | 'verified_confirm' | 'already_voted' | 'voting' | 'review' | 'success';
 
@@ -54,10 +55,20 @@ export default function ElectionPortal() {
 
     setVerificationError(null);
 
+    // Immediate security check for electoral body members
+    if (isElectoralBodyExempt(value)) {
+      setVerificationError(EXEMPTION_MESSAGE);
+      return;
+    }
+
     // If live election is connected, check live accreditation first
     if (activeElectionId) {
       try {
         const accCheck = await checkVoterAccreditationStatus(activeElectionId, value);
+        if (accCheck.isExempt || accCheck.error === EXEMPTION_MESSAGE) {
+          setVerificationError(EXEMPTION_MESSAGE);
+          return;
+        }
         if (accCheck.accredited) {
           setVerifiedStudent({
             matric_number: value.toUpperCase(),
@@ -74,6 +85,11 @@ export default function ElectionPortal() {
     }
 
     const result = verifyStudentMatric(value);
+
+    if (result.isExempt || result.error === EXEMPTION_MESSAGE) {
+      setVerificationError(EXEMPTION_MESSAGE);
+      return;
+    }
 
     if (!result.success) {
       setVerificationError(result.error || 'Matric number could not be verified. Please check the number and try again.');
@@ -103,6 +119,11 @@ export default function ElectionPortal() {
 
   // 3. PROCEED TO REVIEW
   const handleProceedToReview = () => {
+    if (verifiedStudent && isElectoralBodyExempt(verifiedStudent.matric_number)) {
+      setValidationError(EXEMPTION_MESSAGE);
+      return;
+    }
+
     // Validate all positions are chosen
     const unselectedPositions = MOCK_POSITIONS.filter(pos => !selectedCandidates[pos.title]);
     
@@ -118,6 +139,15 @@ export default function ElectionPortal() {
   // 4. ATOMIC SUBMISSION HANDLER
   const handleConfirmSubmit = async () => {
     if (!verifiedStudent) return;
+
+    if (isElectoralBodyExempt(verifiedStudent.matric_number)) {
+      alert(EXEMPTION_MESSAGE);
+      setShowConfirmModal(false);
+      setCurrentStep('verify');
+      setVerificationError(EXEMPTION_MESSAGE);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -337,15 +367,31 @@ export default function ElectionPortal() {
               </div>
             </div>
 
-            {/* Verification Error Box */}
+            {/* Verification Error Box / Exemption Alert */}
             {verificationError && (
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-800 text-xs">
-                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-bold">Verification Failed</p>
-                  <p>{verificationError}</p>
+              verificationError === EXEMPTION_MESSAGE || verificationError.includes('EXEMPTED') ? (
+                <div className="p-5 bg-amber-500/10 border-2 border-amber-500/80 rounded-2xl flex items-center gap-3.5 text-amber-900 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                  <div className="p-2.5 bg-amber-500 text-white rounded-xl shrink-0 shadow-xs">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-widest block">
+                      Accreditation Status Notice
+                    </span>
+                    <p className="text-sm font-black text-amber-900 tracking-tight leading-snug">
+                      {EXEMPTION_MESSAGE}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-800 text-xs">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold">Verification Failed</p>
+                    <p>{verificationError}</p>
+                  </div>
+                </div>
+              )
             )}
 
             <button

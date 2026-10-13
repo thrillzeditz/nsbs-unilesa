@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount, ElectionCollationSummary, ElectionAuditLog, ElectionVoter } from './types';
+import { isElectoralBodyExempt, EXEMPTION_MESSAGE, normalizeMatric } from './electionSecurity';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -366,11 +367,24 @@ export async function toggleElectionVoterEligibility(id: string, isEligible: boo
 // ==========================================
 
 /**
- * Check if a matriculation number has already voted/accredited in this election
+ * Check if a matriculation number has already voted/accredited in this election.
+ * Enforces Electoral Body Exemption checks.
  */
-export async function checkVoterAccreditationStatus(electionId: string, matricNumber: string): Promise<{ accredited: boolean; referenceCode?: string }> {
+export async function checkVoterAccreditationStatus(
+  electionId: string, 
+  matricNumber: string
+): Promise<{ accredited: boolean; referenceCode?: string; isExempt?: boolean; error?: string }> {
+  // Security Enforcer: Reject exempted voters immediately
+  if (isElectoralBodyExempt(matricNumber)) {
+    return {
+      accredited: false,
+      isExempt: true,
+      error: EXEMPTION_MESSAGE
+    };
+  }
+
   const db = getClient();
-  const normalizedMatric = matricNumber.trim().toUpperCase();
+  const normalizedMatric = normalizeMatric(matricNumber);
   const { data, error } = await db
     .from('voter_accreditations')
     .select('reference_code')
@@ -399,8 +413,16 @@ export async function submitElectionBallotRPC(
   ballotItems: { position_id: string; candidate_id: string }[],
   referenceCode: string
 ): Promise<{ success: boolean; referenceCode?: string; error?: string }> {
+  // Backend Security Enforcer: Reject exempted voters immediately
+  if (isElectoralBodyExempt(matricNumber)) {
+    return {
+      success: false,
+      error: EXEMPTION_MESSAGE
+    };
+  }
+
   const db = getClient();
-  const normalizedMatric = matricNumber.trim().toUpperCase();
+  const normalizedMatric = normalizeMatric(matricNumber);
 
   const { data, error } = await db.rpc('submit_election_ballot', {
     p_election_id: electionId,

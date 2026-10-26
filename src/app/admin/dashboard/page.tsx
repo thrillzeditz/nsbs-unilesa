@@ -11,7 +11,7 @@ import {
   getSettings, updateSettings, getSocialLinks, updateSocialLink,
   getLibraryResources, addLibraryResource, deleteLibraryResource,
   getPastQuestions, addPastQuestion, deletePastQuestion,
-  getNewsArticles, addNewsArticle, editNewsArticle, deleteNewsArticle,
+  getNewsArticles, addNewsArticle, editNewsArticle, deleteNewsArticle, setNewsArticlePublished,
   getComments, approveComment, deleteComment,
   getEvents, addEvent, deleteEvent, editEvent,
   getElections, addElection, updateElectionStatus, deleteElection,
@@ -31,6 +31,7 @@ import {
   getDemoElectionStats, resetDemoElectionState, MOCK_POSITIONS,
   DemoElectionStats 
 } from '@/lib/electionDemoData';
+import { createClient } from '@/lib/client';
 
 
 const DEFAULT_COURSE_FOLDERS: Record<string, Record<string, string[]>> = {
@@ -61,14 +62,16 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'analytics' | 'settings' | 'library' | 'payments' | 'news' | 'comments' | 'events' | 'staff_mgmt'>('analytics');
 
   // Role & profile states
-  const [role, setRole] = useState<'super_admin' | 'staff'>('super_admin');
-  const [userName, setUserName] = useState<string>('Super Admin');
+  // 'super_admin' | 'staff' | 'course_rep' | 'electoral_committee'
+  // Resolved from the server-controlled admin_roles table — never from
+  // user_metadata or any client-supplied value.
+  const [role, setRole] = useState<'super_admin' | 'staff' | 'course_rep' | 'electoral_committee'>('staff');
+  const [userName, setUserName] = useState<string>('Staff Member');
   const [staffList, setStaffList] = useState<StaffAccount[]>([]);
 
   // Staff registration inputs
   const [staffNameInput, setStaffNameInput] = useState('');
   const [staffEmailInput, setStaffEmailInput] = useState('');
-  const [staffPasswordInput, setStaffPasswordInput] = useState('');
 
   // Premium file uploader states
   const [libFile, setLibFile] = useState<File | null>(null);
@@ -130,17 +133,76 @@ export default function AdminDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Authenticate Admin & Set Role
+  //
+  // Security model (v3 — UUID-based, fully DB-controlled):
+  // 1. Identity: supabase.auth.getUser() makes a live network request to
+  //    Supabase Auth — cannot be spoofed by a tampered cookie.
+  // 2. Authorization: admin_roles is queried by the verified user UUID.
+  //    The RLS policy on admin_roles: SELECT USING (user_id = auth.uid()).
+  //    No client can insert rows — only service_role (Supabase Dashboard).
+  // 3. Role: read from admin_roles.role — a DB-controlled column. Cannot
+  //    be changed via supabase.auth.updateUser() or any client SDK call.
+  // 4. Display name from staff_accounts (server-controlled). Falls back
+  //    to a safe default. Never reads user_metadata.
+  // 5. Fail closed: any missing step signs out and redirects to /admin.
   useEffect(() => {
-    const session = sessionStorage.getItem('nsbs_admin_session');
-    if (session !== 'true') {
-      router.push('/admin');
-    } else {
-      const storedRole = sessionStorage.getItem('nsbs_admin_role') as 'super_admin' | 'staff' || 'super_admin';
-      const storedName = sessionStorage.getItem('nsbs_admin_name') || 'Super Admin';
-      setRole(storedRole);
-      setUserName(storedName);
+    const verifySession = async () => {
+      const supabase = createClient();
+
+      // Step 1 — Verify identity via live JWT validation.
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user?.email) {
+        router.replace('/admin');
+        return;
+      }
+
+      // Step 2 — Query admin_roles by UUID (auth.uid()).
+      // RLS policy ensures each user can only read their own row.
+      // If no row exists the user is not an admin — deny access.
+      const { data: adminRow, error: adminError } = await supabase
+        .from('admin_roles')
+        .select('role, email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (adminError || !adminRow) {
+        console.warn('[Auth] Authenticated user has no admin_roles row:', user.email);
+        await supabase.auth.signOut();
+        router.replace('/admin');
+        return;
+      }
+
+      // Step 3 — Validate role value against the DB constraint's allowed set.
+      const VALID_ROLES = ['super_admin', 'staff', 'course_rep', 'electoral_committee'] as const;
+      type AdminRole = typeof VALID_ROLES[number];
+      if (!(VALID_ROLES as readonly string[]).includes(adminRow.role)) {
+        console.warn('[Auth] Unknown role in admin_roles:', adminRow.role);
+        await supabase.auth.signOut();
+        router.replace('/admin');
+        return;
+      }
+      const resolvedRole = adminRow.role as AdminRole;
+
+      // Step 4 — Display name from staff_accounts (server-controlled record).
+      // The staff_accounts SELECT policy now requires is_admin_user() —
+      // which passes here because the admin_roles row was confirmed above.
+      const { data: staffRow } = await supabase
+        .from('staff_accounts')
+        .select('name')
+        .eq('email', user.email.toLowerCase())
+        .maybeSingle();
+
+      const displayName: string =
+        staffRow?.name ||
+        (resolvedRole === 'super_admin' ? 'Super Admin' : 'Staff Member');
+
+      setRole(resolvedRole);
+      setUserName(displayName);
       setAuthorized(true);
-    }
+    };
+
+    verifySession();
   }, [router]);
 
   // Automated cleanup for mistakenly added BCH 201 in 100 Level
@@ -197,9 +259,10 @@ export default function AdminDashboard() {
           setSelectedElectionId(el[0].id);
         }
 
-        // Fetch staff list if Super Admin
-        const storedRole = sessionStorage.getItem('nsbs_admin_role');
-        if (storedRole === 'super_admin') {
+        // Fetch staff list if Super Admin.
+        // Use React state (role), not sessionStorage — role is set by the
+        // server-authoritative verifySession() above, not by the client.
+        if (role === 'super_admin') {
           const list = await getStaffAccounts();
           setStaffList(list);
         }
@@ -243,9 +306,13 @@ export default function AdminDashboard() {
   const triggerRefresh = () => setRefreshKey(prev => prev + 1);
 
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('nsbs_admin_session');
-    router.push('/admin');
+  const handleLogout = async () => {
+    const supabase = createClient();
+    // Sign out server-side: invalidates the Supabase session cookie.
+    // After this, the proxy at /admin/dashboard will redirect any
+    // direct navigation attempt back to /admin.
+    await supabase.auth.signOut();
+    router.replace('/admin');
   };
 
   // ==========================================
@@ -423,17 +490,17 @@ export default function AdminDashboard() {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!staffNameInput || !staffEmailInput || !staffPasswordInput) return;
+    if (!staffNameInput || !staffEmailInput) return;
     try {
+      // Passwords are never stored here. Login access is provisioned in
+      // Supabase Auth + the admin_roles table.
       await addStaffAccount({
         name: staffNameInput,
-        email: staffEmailInput,
-        password: staffPasswordInput
+        email: staffEmailInput
       });
-      alert(`Staff credentials created successfully for ${staffNameInput}!`);
+      alert(`Staff record created for ${staffNameInput}. Grant login access via Supabase Auth + admin_roles.`);
       setStaffNameInput('');
       setStaffEmailInput('');
-      setStaffPasswordInput('');
       triggerRefresh();
     } catch (err) {
       console.error(err);
@@ -600,6 +667,7 @@ export default function AdminDashboard() {
   const [newsImg, setNewsImg] = useState('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=800');
   const [newsAuthor, setNewsAuthor] = useState('NSBS Admin');
   const [newsTags, setNewsTags] = useState('News, Chemistry');
+  const [newsPublishNow, setNewsPublishNow] = useState(true);
 
   const handleAddNews = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,14 +679,26 @@ export default function AdminDashboard() {
         category: newsCategory,
         featured_image: newsImg,
         author: newsAuthor,
-        tags: newsTags.split(',').map(t => t.trim())
+        tags: newsTags.split(',').map(t => t.trim()),
+        is_published: newsPublishNow
       });
-      alert("News article published successfully!");
+      alert(newsPublishNow ? "News article published successfully!" : "News article saved as draft.");
       setNewsTitle('');
       setNewsContent('');
       triggerRefresh();
     } catch (err) {
       console.error(err);
+      alert(`Failed to save article: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleTogglePublish = async (id: string, publish: boolean) => {
+    try {
+      await setNewsArticlePublished(id, publish);
+      triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update publish status.");
     }
   };
 
@@ -716,6 +796,74 @@ export default function AdminDashboard() {
     await deleteElection(id);
     setSelectedElectionId('');
     triggerRefresh();
+  };
+
+  // ==========================================
+  // ELECTION PORTAL TOGGLE (super_admin only)
+  // Persists to site_settings.election_portal_enabled.
+  // Two-step confirmation is required before enabling.
+  // ==========================================
+  const [electionToggleSaving, setElectionToggleSaving] = useState(false);
+  const [electionToggleMsg, setElectionToggleMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleElectionPortalToggle = async (enable: boolean) => {
+    if (role !== 'super_admin') {
+      alert('Only super administrators can control the election portal.');
+      return;
+    }
+
+    const currentlyEnabled = settings?.election_portal_enabled === true;
+    if (enable === currentlyEnabled) return;
+
+    // Two-step confirmation
+    if (enable) {
+      const first = window.confirm(
+        '⚠️ ENABLE ELECTION PORTAL\n\n' +
+        'You are about to OPEN the election portal to all students.\n\n' +
+        'Before proceeding, confirm that:\n' +
+        '  • All candidates and offices have been verified.\n' +
+        '  • The voter roster is complete and accredited.\n' +
+        '  • The election board status is set to "open".\n\n' +
+        'Click OK to proceed to the final confirmation.'
+      );
+      if (!first) return;
+      const second = window.confirm(
+        '🔐 FINAL CONFIRMATION\n\n' +
+        'NSBS Election Portal will be ENABLED.\n' +
+        'Students will be able to cast votes immediately.\n\n' +
+        'Are you absolutely sure?'
+      );
+      if (!second) return;
+    } else {
+      const confirm_ = window.confirm(
+        '🔴 CLOSE ELECTION PORTAL\n\n' +
+        'This will immediately prevent any further votes from being cast.\n\n' +
+        'Are you sure you want to close the election portal?'
+      );
+      if (!confirm_) return;
+    }
+
+    setElectionToggleSaving(true);
+    setElectionToggleMsg(null);
+    try {
+      const updated = await updateSettings({ election_portal_enabled: enable });
+      setSettings(updated);
+      setEditSettings(updated);
+      setElectionToggleMsg({
+        type: 'success',
+        text: enable
+          ? 'Election portal is now OPEN. Students can vote.'
+          : 'Election portal is now CLOSED. Voting has been suspended.'
+      });
+      // Notify other tabs / components that settings changed
+      window.dispatchEvent(new Event('settingsUpdated'));
+      setTimeout(() => setElectionToggleMsg(null), 6000);
+    } catch (err: any) {
+      console.error('[Election Toggle]', err);
+      setElectionToggleMsg({ type: 'error', text: err.message || 'Failed to update election portal status.' });
+    } finally {
+      setElectionToggleSaving(false);
+    }
   };
 
   // Candidates creation
@@ -1480,6 +1628,8 @@ export default function AdminDashboard() {
                       />
                     </div>
 
+                    {/* Election toggle lives in Events & Voting tab — see Election Portal Control section */}
+
                     <button
                       type="submit"
                       className="px-5 py-2.5 bg-primary hover:bg-secondary text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
@@ -2206,33 +2356,55 @@ export default function AdminDashboard() {
                     />
                   </div>
 
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input
+                      id="news-publish-now"
+                      type="checkbox"
+                      checked={newsPublishNow}
+                      onChange={(e) => setNewsPublishNow(e.target.checked)}
+                    />
+                    Publish immediately (uncheck to save as draft)
+                  </label>
+
                   <button
                     type="submit"
                     className="w-full py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" /> Publish Article
+                    <Plus className="w-4 h-4" /> {newsPublishNow ? 'Publish Article' : 'Save Draft'}
                   </button>
                 </form>
 
                 {/* News Table List */}
                 <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="font-extrabold text-slate-800 text-sm">Published Articles ({news.length})</h4>
+                  <h4 className="font-extrabold text-slate-800 text-sm">Articles ({news.length})</h4>
                   
                   <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
                     {news.map(art => (
                       <div key={art.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-250 flex items-center justify-between gap-4">
                         <div className="space-y-1">
                           <span className="text-[9px] font-bold text-secondary uppercase tracking-wider">{art.category}</span>
+                          {art.is_published === false && (
+                            <span className="ml-2 text-[9px] font-bold text-amber-600 uppercase tracking-wider">Draft</span>
+                          )}
                           <h5 className="font-bold text-slate-800 text-xs line-clamp-1">{art.title}</h5>
                           <p className="text-[10px] text-slate-400">By {art.author} &bull; {new Date(art.created_at).toLocaleDateString()}</p>
                         </div>
-                        <button
-                          onClick={() => handleDeleteNews(art.id)}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded transition-premium shrink-0"
-                          title="Delete Post"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            id={`toggle-publish-${art.id}`}
+                            onClick={() => handleTogglePublish(art.id, art.is_published === false)}
+                            className="px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-200 rounded transition-premium"
+                          >
+                            {art.is_published === false ? 'Publish' : 'Unpublish'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteNews(art.id)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded transition-premium shrink-0"
+                            title="Delete Post"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2316,6 +2488,141 @@ export default function AdminDashboard() {
           {/* ========================================== */}
           {activeTab === 'events' && (
             <div className="space-y-8">
+
+              {/* ========================================================================= */}
+              {/* ELECTION PORTAL CONTROL — super_admin only */}
+              {/* ========================================================================= */}
+              {role === 'super_admin' && (() => {
+                const portalEnabled = settings?.election_portal_enabled === true;
+                return (
+                  <div className={`rounded-3xl border-2 shadow-lg overflow-hidden transition-all duration-500 ${
+                    portalEnabled
+                      ? 'border-emerald-400 bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950'
+                      : 'border-slate-700 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950'
+                  }`}>
+                    {/* Top Bar */}
+                    <div className={`px-6 py-2 flex items-center gap-2 border-b ${
+                      portalEnabled ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${
+                        portalEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`} />
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-300">
+                        {portalEnabled ? 'ELECTION PORTAL — LIVE & ACCEPTING VOTES' : 'ELECTION PORTAL — CLOSED'}
+                      </span>
+                      <span className="ml-auto text-[9px] font-bold text-slate-500 uppercase">Super Admin Control</span>
+                    </div>
+
+                    {/* Body */}
+                    <div className="p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                      <div className="space-y-2 text-white">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2.5 rounded-xl border ${
+                            portalEnabled
+                              ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'
+                              : 'bg-white/5 border-white/10 text-slate-400'
+                          }`}>
+                            <Vote className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-extrabold tracking-tight">
+                              {portalEnabled ? '🟢 Election Portal is OPEN' : '🔴 Election Portal is CLOSED'}
+                            </h3>
+                            <p className="text-[11px] text-slate-400">
+                              {portalEnabled
+                                ? 'Students with accredited matric numbers can cast their votes right now.'
+                                : 'Students cannot access the voting portal. Enable only when the election period begins.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                          <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Portal Status</span>
+                            <span className={`text-sm font-extrabold block mt-0.5 ${
+                              portalEnabled ? 'text-emerald-300' : 'text-slate-400'
+                            }`}>
+                              {portalEnabled ? 'Voting Open' : 'Voting Closed'}
+                            </span>
+                          </div>
+                          <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Active Boards</span>
+                            <span className="text-sm font-extrabold text-white block mt-0.5">
+                              {elections.filter(e => e.status === 'open').length} Open / {elections.length} Total
+                            </span>
+                          </div>
+                          <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">Registered Voters</span>
+                            <span className="text-sm font-extrabold text-white block mt-0.5">
+                              {electionCollation?.eligible_voters ?? electionVotersList.length} students
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status message */}
+                        {electionToggleMsg && (
+                          <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border ${
+                            electionToggleMsg.type === 'success'
+                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                              : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                          }`}>
+                            {electionToggleMsg.type === 'success' ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                            {electionToggleMsg.text}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Toggle Controls */}
+                      <div className="flex flex-col gap-3 shrink-0">
+                        {portalEnabled ? (
+                          <button
+                            id="election-portal-disable-btn"
+                            disabled={electionToggleSaving}
+                            onClick={() => handleElectionPortalToggle(false)}
+                            className="px-6 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-premium flex items-center gap-2 cursor-pointer"
+                          >
+                            {electionToggleSaving ? (
+                              <><div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white" /><span>Saving...</span></>
+                            ) : (
+                              <><X className="w-4 h-4" /><span>Close Election Portal</span></>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            id="election-portal-enable-btn"
+                            disabled={electionToggleSaving}
+                            onClick={() => handleElectionPortalToggle(true)}
+                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-premium flex items-center gap-2 cursor-pointer"
+                          >
+                            {electionToggleSaving ? (
+                              <><div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white" /><span>Saving...</span></>
+                            ) : (
+                              <><Vote className="w-4 h-4" /><span>Open Election Portal</span></>
+                            )}
+                          </button>
+                        )}
+                        <p className="text-[10px] text-slate-500 text-center max-w-[220px]">
+                          {portalEnabled
+                            ? 'Closing will immediately stop all voting.'
+                            : 'Opening requires two-step confirmation.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Warning banner when enabled */}
+                    {portalEnabled && (
+                      <div className="px-6 pb-5">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                          <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <p className="text-[11px] text-emerald-300 leading-snug">
+                            <strong>Ballot anonymity is active.</strong> Votes are recorded without linking to voter identities. Only accreditation records are kept for duplicate-vote prevention.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               
               {/* ========================================================================= */}
               {/* NSBS ELECTION STATISTICS & ACCREDITED COLLATION PANEL */}
@@ -3182,17 +3489,9 @@ export default function AdminDashboard() {
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">Access Password *</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="e.g. securepassword"
-                      value={staffPasswordInput}
-                      onChange={(e) => setStaffPasswordInput(e.target.value)}
-                      className="block w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50"
-                    />
-                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Login access is granted separately: create the user in Supabase Auth and add their user ID to the <code>admin_roles</code> table.
+                  </p>
 
                   <button
                     type="submit"

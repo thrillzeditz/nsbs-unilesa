@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Calendar, User, Tag, ArrowLeft, Send, CheckCircle2, MessageSquare } from 'lucide-react';
-import { getNewsArticles, getComments, addComment } from '@/lib/db';
+import { getPublishedNewsArticles, getComments, addComment } from '@/lib/db';
 import { NewsArticle, Comment } from '@/lib/types';
 import Link from 'next/link';
 
@@ -24,7 +24,7 @@ export default function ArticleDetail() {
 
   const fetchArticleAndComments = async () => {
     try {
-      const allArticles = await getNewsArticles();
+      const allArticles = await getPublishedNewsArticles();
       const current = allArticles.find(a => a.slug === slug);
       if (current) {
         setArticle(current);

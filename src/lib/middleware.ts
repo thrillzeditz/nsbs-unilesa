@@ -1,13 +1,22 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+/**
+ * NSBS Admin Session Refresher
+ *
+ * Must be called from proxy.ts on every request to /admin/dashboard.
+ * Refreshes the Supabase session cookie and enforces authentication.
+ * Unauthenticated visitors are redirected to /admin (the login page).
+ *
+ * IMPORTANT: Do not add any code between createServerClient and
+ * supabase.auth.getClaims(). Even a single awaited call in between
+ * can cause intermittent logout bugs due to cookie timing issues.
+ */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
 
-  // With Fluid compute, don't put this client in a global environment
-  // variable. Always create a new one on each request.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -29,41 +38,22 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Do not run code between createServerClient and
-  // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
-
-  // IMPORTANT: If you remove getClaims() and you use server-side rendering
-  // with the Supabase client, your users may be randomly logged out.
+  // getClaims() is recommended by @supabase/ssr@0.12.7 for proxy/middleware usage.
+  // It reads JWT claims without a network round-trip when the session is still valid,
+  // and falls back to getSession() to refresh when the access token has expired.
   const { data } = await supabase.auth.getClaims()
-  const user = data?.claims
+  const isAuthenticated = !!data?.claims
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    // the OAuth consent route sends unauthenticated visitors to the login page
-    // itself, so that it can preserve the authorization in the `next` parameter
-    request.nextUrl.pathname !== '/oauth/consent'
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  // Protect /admin/dashboard and all sub-paths.
+  // Redirect unauthenticated visitors to the login page.
+  if (!isAuthenticated && request.nextUrl.pathname.startsWith('/admin/dashboard')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
+    url.pathname = '/admin'
     return NextResponse.redirect(url)
   }
 
-  // IMPORTANT: You *must* return the supabaseResponse object as it is.
-  // If you're creating a new response object with NextResponse.next() make sure to:
-  // 1. Pass the request in it, like so:
-  //    const myNewResponse = NextResponse.next({ request })
-  // 2. Copy over the cookies, like so:
-  //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())
-  // 3. Change the myNewResponse object to fit your needs, but avoid changing
-  //    the cookies!
-  // 4. Finally:
-  //    return myNewResponse
-  // If this is not done, you may be causing the browser and server to go out
-  // of sync and terminate the user's session prematurely!
-
+  // IMPORTANT: Return supabaseResponse as-is to preserve cookie state.
+  // Never create a new NextResponse.next() here — it would lose the
+  // refreshed session cookies set by setAll above.
   return supabaseResponse
 }

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Newspaper, Search, Calendar, User, Tag, ChevronRight, BookOpen } from 'lucide-react';
-import { getNewsArticles } from '@/lib/db';
+import { getPublishedNewsArticles } from '@/lib/db';
 import { NewsArticle } from '@/lib/types';
 
 export default function NewsPage() {
@@ -25,10 +25,10 @@ export default function NewsPage() {
   ];
 
   useEffect(() => {
-    getNewsArticles().then(data => {
-      setArticles(data);
-      setLoading(false);
-    });
+    getPublishedNewsArticles()
+      .then(data => setArticles(data))
+      .catch(err => console.error('Failed to load news:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   // Filtering

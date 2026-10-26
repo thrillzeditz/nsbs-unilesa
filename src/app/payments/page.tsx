@@ -5,6 +5,17 @@ import { CreditCard, Search, CheckCircle, Clock, AlertTriangle, MessageSquare, L
 import { getSettings, addPaymentRecord, getPaymentByMatric } from '@/lib/db';
 import { SiteSettings, PaymentRecord } from '@/lib/types';
 
+/** Non-PII subset returned by getPaymentByMatric (reads payment_status_view). */
+type PaymentStatusRow = Pick<PaymentRecord,
+  | 'matric_number'
+  | 'level'
+  | 'academic_session'
+  | 'due_item'
+  | 'amount_paid'
+  | 'payment_status'
+  | 'created_at'
+>;
+
 export default function PaymentsPage() {
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [activeTab, setActiveTab] = useState<'pay' | 'track'>('pay');
@@ -25,7 +36,7 @@ export default function PaymentsPage() {
 
   // Track States
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<PaymentRecord[]>([]);
+  const [searchResults, setSearchResults] = useState<PaymentStatusRow[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searching, setSearching] = useState(false);
 
@@ -473,7 +484,7 @@ export default function PaymentsPage() {
                   <div className="space-y-3">
                     {searchResults.map((record) => (
                       <div 
-                        key={record.id}
+                        key={`${record.matric_number}-${record.created_at}`}
                         className="bg-slate-50 border border-slate-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
                       >
                         <div className="space-y-1.5">
@@ -489,7 +500,7 @@ export default function PaymentsPage() {
                             </span>
                           </div>
                           <h5 className="font-bold text-sm text-slate-800">
-                            {record.surname} {record.first_name} {record.middle_name || ''}
+                            {record.due_item}
                           </h5>
                           <div className="text-[10px] text-slate-400 font-medium">
                             Paid: N{record.amount_paid.toLocaleString()} on {new Date(record.created_at).toLocaleDateString()}

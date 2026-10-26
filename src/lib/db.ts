@@ -99,6 +99,10 @@ export async function deletePastQuestion(id: string): Promise<boolean> {
 // ==========================================
 // News Articles
 // ==========================================
+
+/**
+ * Admin: fetch ALL articles (drafts + published) for the dashboard.
+ */
 export async function getNewsArticles(): Promise<NewsArticle[]> {
   const db = getClient();
   const { data, error } = await db.from('news_articles').select('*').order('created_at', { ascending: false });
@@ -106,23 +110,74 @@ export async function getNewsArticles(): Promise<NewsArticle[]> {
   return data as NewsArticle[];
 }
 
-export async function addNewsArticle(article: Omit<NewsArticle, 'id' | 'created_at' | 'slug'>): Promise<NewsArticle> {
+/**
+ * Public: fetch only PUBLISHED articles for the public /news page.
+ * Falls back to unfiltered if the column doesn't exist yet (pre-migration).
+ */
+export async function getPublishedNewsArticles(): Promise<NewsArticle[]> {
+  const db = getClient();
+  const { data, error } = await db
+    .from('news_articles')
+    .select('*')
+    .eq('is_published', true)
+    .order('published_at', { ascending: false });
+  if (error) {
+    // If is_published column doesn't exist yet, fall back to all articles
+    if (error.code === 'PGRST204' || error.message?.includes('is_published')) {
+      const { data: fallback } = await db.from('news_articles').select('*').order('created_at', { ascending: false });
+      return (fallback || []) as NewsArticle[];
+    }
+    throw new Error(`Failed to fetch published news articles: ${error.message}`);
+  }
+  return (data || []) as NewsArticle[];
+}
+
+/**
+ * Admin: add a news article. is_published defaults to false (draft).
+ */
+export async function addNewsArticle(article: Omit<NewsArticle, 'id' | 'created_at' | 'slug' | 'published_at'>): Promise<NewsArticle> {
   const db = getClient();
   const slug = article.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const { data, error } = await db.from('news_articles').insert({ ...article, slug }).select().single();
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = { ...article, slug };
+  if (article.is_published) {
+    payload.published_at = now;
+  }
+  const { data, error } = await db.from('news_articles').insert(payload).select().single();
   if (error) throw new Error(`Failed to add news article: ${error.message}`);
   return data as NewsArticle;
 }
 
+/**
+ * Admin: edit a news article. Automatically sets published_at when publishing for the first time.
+ */
 export async function editNewsArticle(id: string, article: Partial<NewsArticle>): Promise<NewsArticle> {
   const db = getClient();
-  const updatePayload = { ...article };
+  const updatePayload: Record<string, unknown> = { ...article };
   if (article.title) {
     updatePayload.slug = article.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+  // Set published_at when publishing for the first time
+  if (article.is_published === true && !article.published_at) {
+    // Fetch existing to check if already had published_at
+    const { data: existing } = await db.from('news_articles').select('published_at').eq('id', id).single();
+    if (!existing?.published_at) {
+      updatePayload.published_at = new Date().toISOString();
+    }
   }
   const { data, error } = await db.from('news_articles').update(updatePayload).eq('id', id).select().single();
   if (error) throw new Error(`Failed to edit news article: ${error.message}`);
   return data as NewsArticle;
+}
+
+/**
+ * Admin: publish or unpublish an article.
+ */
+export async function setNewsArticlePublished(id: string, publish: boolean): Promise<NewsArticle> {
+  return editNewsArticle(id, {
+    is_published: publish,
+    ...(publish ? {} : { published_at: undefined })
+  });
 }
 
 export async function deleteNewsArticle(id: string): Promise<boolean> {
@@ -371,36 +426,40 @@ export async function toggleElectionVoterEligibility(id: string, isEligible: boo
  * Enforces Electoral Body Exemption checks.
  */
 export async function checkVoterAccreditationStatus(
-  electionId: string, 
+  electionId: string,
   matricNumber: string
 ): Promise<{ accredited: boolean; referenceCode?: string; isExempt?: boolean; error?: string }> {
-  // Security Enforcer: Reject exempted voters immediately
+  // Client-side security enforcer: reject exempted voters immediately
   if (isElectoralBodyExempt(matricNumber)) {
-    return {
-      accredited: false,
-      isExempt: true,
-      error: EXEMPTION_MESSAGE
-    };
+    return { accredited: false, isExempt: true, error: EXEMPTION_MESSAGE };
   }
 
   const db = getClient();
   const normalizedMatric = normalizeMatric(matricNumber);
-  const { data, error } = await db
+
+  // Primary path: SECURITY DEFINER RPC — works for anon voters.
+  // After migration, voter_accreditations is RLS-locked to admins only.
+  // The check_voter_accreditation() function bypasses RLS safely and
+  // returns only a boolean (no bulk enumeration possible).
+  const { data, error } = await db.rpc('check_voter_accreditation', {
+    p_election_id: electionId,
+    p_matric: normalizedMatric
+  });
+
+  if (!error && data !== null) {
+    return { accredited: data.accredited === true };
+  }
+
+  // Fallback: direct table query (works only in authenticated admin contexts
+  // or pre-migration environments where RLS is not yet applied).
+  const { data: direct } = await db
     .from('voter_accreditations')
     .select('reference_code')
     .eq('election_id', electionId)
     .eq('matric_number', normalizedMatric)
     .maybeSingle();
 
-  if (error) {
-    console.error('Accreditation check error:', error.message);
-    return { accredited: false };
-  }
-
-  return { 
-    accredited: !!data,
-    referenceCode: data?.reference_code
-  };
+  return { accredited: !!direct, referenceCode: direct?.reference_code };
 }
 
 /**
@@ -626,7 +685,56 @@ export async function verifyPayment(id: string, status: 'Approved' | 'Rejected')
   return data as PaymentRecord;
 }
 
-export async function getPaymentByMatric(matric: string): Promise<PaymentRecord[]> {
+/**
+ * Public payment status lookup — calls the SECURITY DEFINER RPC
+ * `lookup_payment_status`, which replaces the old `payment_status_view`.
+ *
+ * Security model:
+ *  - The RPC runs as the function owner (bypasses RLS on payment_records).
+ *  - Returns only: matric_number, level, academic_session, due_item,
+ *    amount_paid, payment_status, created_at — NO name, email, or phone.
+ *  - Filtered to the single matric supplied — bulk enumeration is impossible.
+ *  - Callable by anon (students checking their own payment status).
+ *
+ * Fallback: if the RPC does not exist yet (pre-migration environment),
+ * attempts a direct table query (succeeds only for authenticated admins).
+ */
+export async function getPaymentByMatric(matric: string): Promise<Pick<PaymentRecord, 'matric_number' | 'level' | 'academic_session' | 'due_item' | 'amount_paid' | 'payment_status' | 'created_at'>[]> {
+  const db = getClient();
+
+  const { data, error } = await db.rpc('lookup_payment_status', {
+    p_matric: matric.trim()
+  });
+
+  if (!error) {
+    return (data || []) as PaymentRecord[];
+  }
+
+  // Fallback: pre-migration or admin context — try the old view first,
+  // then the raw table. Both will return 0 rows for anon users post-migration.
+  const { data: viewData, error: viewErr } = await db
+    .from('payment_status_view')
+    .select('matric_number, level, academic_session, due_item, amount_paid, payment_status, created_at')
+    .ilike('matric_number', matric.trim())
+    .order('created_at', { ascending: false });
+
+  if (!viewErr) {
+    return (viewData || []) as PaymentRecord[];
+  }
+
+  const { data: fallback } = await db
+    .from('payment_records')
+    .select('matric_number, level, academic_session, due_item, amount_paid, payment_status, created_at')
+    .ilike('matric_number', matric.trim())
+    .order('created_at', { ascending: false });
+
+  return (fallback || []) as PaymentRecord[];
+}
+
+/**
+ * Admin-only: full payment record lookup including PII.
+ */
+export async function getPaymentByMatricAdmin(matric: string): Promise<PaymentRecord[]> {
   const db = getClient();
   const { data, error } = await db.from('payment_records')
     .select('*')
@@ -638,10 +746,16 @@ export async function getPaymentByMatric(matric: string): Promise<PaymentRecord[
 
 // ==========================================
 // Staff Accounts
+// NOTE: password is a legacy column — never returned in SELECT queries.
+//       Authentication goes through Supabase Auth (admin_roles table).
 // ==========================================
 export async function getStaffAccounts(): Promise<StaffAccount[]> {
   const db = getClient();
-  const { data, error } = await db.from('staff_accounts').select('*').order('created_at', { ascending: false });
+  // Deliberately exclude the password column to prevent exposure.
+  const { data, error } = await db
+    .from('staff_accounts')
+    .select('id, name, email, created_at')
+    .order('created_at', { ascending: false });
   if (error) throw new Error(`Failed to fetch staff accounts: ${error.message}`);
   return data as StaffAccount[];
 }
@@ -649,10 +763,16 @@ export async function getStaffAccounts(): Promise<StaffAccount[]> {
 export async function addStaffAccount(account: Omit<StaffAccount, 'id' | 'created_at'>): Promise<StaffAccount> {
   const db = getClient();
   const normalizedAccount = {
-    ...account,
-    email: account.email.trim().toLowerCase()
+    name: account.name,
+    email: account.email.trim().toLowerCase(),
+    // Only include password if provided (legacy field; authentication uses admin_roles)
+    ...(account.password ? { password: account.password } : {})
   };
-  const { data, error } = await db.from('staff_accounts').insert(normalizedAccount).select().single();
+  const { data, error } = await db
+    .from('staff_accounts')
+    .insert(normalizedAccount)
+    .select('id, name, email, created_at')
+    .single();
   if (error) throw new Error(`Failed to add staff account: ${error.message}`);
   return data as StaffAccount;
 }

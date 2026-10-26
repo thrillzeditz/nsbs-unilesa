@@ -16,6 +16,8 @@ export interface SiteSettings {
   contact_email_general: string;
   contact_whatsapp: string;
   footer_description: string;
+  /** Whether the election portal is open to the public. Default: false (closed). */
+  election_portal_enabled?: boolean;
 }
 
 export interface SocialMediaLink {
@@ -58,6 +60,10 @@ export interface NewsArticle {
   author: string;
   category: string;
   tags: string[];
+  /** True when the article is publicly visible. False = draft. */
+  is_published: boolean;
+  /** When the article was published (set on first publish). */
+  published_at?: string;
   created_at: string;
 }
 
@@ -199,6 +205,12 @@ export interface StaffAccount {
   id: string;
   name: string;
   email: string;
+  /**
+   * @deprecated Never display or log this field. The staff_accounts table
+   * stores a plain-text legacy field. Do not use for authentication —
+   * all authentication goes through Supabase Auth (admin_roles).
+   * Queries should explicitly exclude this column.
+   */
   password?: string;
   created_at: string;
 }

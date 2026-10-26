@@ -11,7 +11,7 @@ import {
   verifyStudentMatric, submitDemoVote, resetDemoElectionState
 } from '@/lib/electionDemoData';
 import { 
-  checkVoterAccreditationStatus, submitElectionBallotRPC, getElections
+  checkVoterAccreditationStatus, submitElectionBallotRPC, getElections, getSettings
 } from '@/lib/db';
 import { isElectoralBodyExempt, EXEMPTION_MESSAGE } from '@/lib/electionSecurity';
 
@@ -28,10 +28,21 @@ export default function ElectionPortal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [referenceCode, setReferenceCode] = useState<string>('');
   const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
+  // null = loading; false = closed (default / fail-closed); true = open
+  const [portalEnabled, setPortalEnabled] = useState<boolean | null>(null);
 
   // Check for active live election on mount
   useEffect(() => {
     async function loadActiveElection() {
+      try {
+        const s = await getSettings();
+        const enabled = s?.election_portal_enabled === true;
+        setPortalEnabled(enabled);
+        if (!enabled) return;
+      } catch {
+        setPortalEnabled(false);
+        return;
+      }
       try {
         const elections = await getElections();
         const openElection = elections.find(e => e.status === 'open');
@@ -139,6 +150,10 @@ export default function ElectionPortal() {
   // 4. ATOMIC SUBMISSION HANDLER
   const handleConfirmSubmit = async () => {
     if (!verifiedStudent) return;
+    if (portalEnabled !== true) {
+      setShowConfirmModal(false);
+      return;
+    }
 
     if (isElectoralBodyExempt(verifiedStudent.matric_number)) {
       alert(EXEMPTION_MESSAGE);
@@ -216,6 +231,37 @@ export default function ElectionPortal() {
     setShowConfirmModal(false);
     setReferenceCode('');
   };
+
+  if (portalEnabled !== true) {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-slate-900 text-white p-6 sm:p-7 border-b border-slate-800 flex items-center justify-between gap-4">
+          <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
+            <VoteIcon className="w-6 h-6 text-secondary" /> Student Election Portal
+          </h3>
+          <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-2xl">
+            <div className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+            <span className="text-xs font-bold text-slate-300">{portalEnabled === null ? 'Checking…' : 'Closed'}</span>
+          </div>
+        </div>
+        <div className="p-8 text-center space-y-4">
+          {portalEnabled === null ? (
+            <div className="w-8 h-8 border-2 border-secondary border-t-transparent rounded-full animate-spin mx-auto" />
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center mx-auto">
+                <Lock className="w-8 h-8" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900">The Election Portal Is Currently Closed</h4>
+              <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                Voting is not available at this time. Official announcements will be published when the election period opens.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">

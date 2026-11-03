@@ -280,3 +280,19 @@ body {
     @apply font-sans;
   }
 }
+
+/*
+ * Autofill override — prevents browsers from injecting a white/light
+ * background that makes text invisible on dark (glass-dark) login inputs.
+ * The long transition delay on background-color forces the browser to keep
+ * our custom shadow instead of its native autofill colour.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px rgba(30, 41, 59, 0.92) inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #f8fafc;
+  transition: background-color 5000s ease-in-out 0s;
+}

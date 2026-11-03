@@ -38,11 +38,25 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // getClaims() is recommended by @supabase/ssr@0.12.7 for proxy/middleware usage.
-  // It reads JWT claims without a network round-trip when the session is still valid,
-  // and falls back to getSession() to refresh when the access token has expired.
-  const { data } = await supabase.auth.getClaims()
-  const isAuthenticated = !!data?.claims
+  // getClaims() is the recommended method in @supabase/ssr@0.12.7 for
+  // proxy/middleware usage.  It verifies the JWT locally using the JWKS cache
+  // (no network round-trip) when the token is still valid, and falls back to
+  // getSession() to refresh when the access token has expired.
+  //
+  // If getClaims() itself throws (e.g. Supabase project is temporarily
+  // unreachable during a token refresh), we treat the session as unknown and
+  // redirect to login.  This keeps the middleware from crashing and avoids
+  // logging the admin in with an unverified session.
+  let isAuthenticated = false
+  try {
+    const { data } = await supabase.auth.getClaims()
+    isAuthenticated = !!data?.claims
+  } catch {
+    // Network error during session refresh — treat as unauthenticated.
+    // The admin will be redirected to the login page where they can
+    // sign in again once the Supabase project is reachable.
+    isAuthenticated = false
+  }
 
   // Protect /admin/dashboard and all sub-paths.
   // Redirect unauthenticated visitors to the login page.

@@ -30,12 +30,20 @@ export default function AdminLogin() {
 
   // If the user already has a valid Supabase session, send them straight
   // to the dashboard. The dashboard also verifies the session independently.
+  // NOTE: getSession() is used here (not getClaims / getUser) because this
+  // is a browser-only pre-flight check whose sole purpose is to skip the
+  // login form for users who are already signed in.  The dashboard performs
+  // a full server-side auth.getUser() call before granting access.
   useEffect(() => {
     const checkSession = async () => {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getClaims();
-      if (data?.claims) {
-        router.replace('/admin/dashboard');
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          router.replace('/admin/dashboard');
+        }
+      } catch {
+        // Ignore pre-flight errors — let the user attempt to sign in normally.
       }
     };
     checkSession();
@@ -72,11 +80,32 @@ export default function AdminLogin() {
 
       if (authError || !authData.user) {
         // Fail closed — never fall through to any alternative path.
-        setErrorMsg(
-          authError?.message === 'Invalid login credentials'
-            ? 'Incorrect email or password. Please try again.'
-            : `Authentication failed: ${authError?.message ?? 'Unknown error'}.`
-        );
+        // Classify the error so the admin can distinguish between:
+        //   1. Wrong credentials  → actionable (try again)
+        //   2. Network / project unreachable → tells admin to check Supabase status
+        //   3. Other Supabase errors → generic message
+        const msg = authError?.message ?? '';
+        let displayMsg: string;
+
+        if (msg === 'Invalid login credentials') {
+          displayMsg = 'Incorrect email or password. Please check your credentials and try again.';
+        } else if (
+          msg === 'Failed to fetch' ||
+          msg.includes('NetworkError') ||
+          msg.includes('network') ||
+          msg.includes('fetch')
+        ) {
+          displayMsg =
+            'Cannot reach the authentication server. ' +
+            'This usually means the Supabase project is paused, the URL is wrong, or your internet connection is interrupted. ' +
+            'Check your Supabase project status at supabase.com and try again.';
+        } else if (msg.includes('Email not confirmed')) {
+          displayMsg = 'Your email address has not been confirmed. Check your inbox for the confirmation link.';
+        } else {
+          displayMsg = `Sign-in failed: ${msg || 'Unknown error'}. If this persists, contact the system administrator.`;
+        }
+
+        setErrorMsg(displayMsg);
         return;
       }
 
@@ -146,7 +175,7 @@ export default function AdminLogin() {
                   placeholder="admin@nsbs.unilesa.edu.ng or admin"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-3 border border-white/10 rounded-xl bg-white/5 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white"
+                  className="block w-full pl-10 pr-3.5 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
                 />
               </div>
             </div>
@@ -168,7 +197,7 @@ export default function AdminLogin() {
                   placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-white/5 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white"
+                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
                 />
                 <button
                   type="button"

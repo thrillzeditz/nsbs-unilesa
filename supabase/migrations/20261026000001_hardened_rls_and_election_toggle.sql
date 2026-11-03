@@ -1,60 +1,70 @@
 -- ====================================================================
--- MIGRATION: v5 — Least-Privilege RBAC, Hardened RPCs & Payment Fix
+-- MIGRATION: v6 — Security Audit Corrections (2026-10-26)
 -- NSBS University of Ilesa Portal
--- Date: 2026-10-26  |  Version: v5 (Critical Security Corrections)
+-- Supersedes: 20261013000001, 20261016000001, and the previous v5 draft
+--             of this file.  Apply ONLY this migration; do not also apply
+--             the two earlier files.
 -- ====================================================================
 -- SAFETY GUARANTEES:
---   ✓ Wrapped in BEGIN…COMMIT — fails atomically or not at all.
+--   ✓ Wrapped in BEGIN…COMMIT — atomic; rolls back entirely on any error.
 --   ✓ All DDL uses IF NOT EXISTS / CREATE OR REPLACE / DROP IF EXISTS.
---   ✓ Section 3 uses pg_policies enumeration to drop EVERY existing
---     policy on each table (not just named ones from previous migrations).
+--   ✓ Section 3 enumerates pg_policies to drop EVERY existing policy on
+--     each affected table (not only the named ones from previous drafts).
+--   ✓ Section 3 drops ALL storage.objects policies so that broad policies
+--     (USING true / no bucket filter) cannot grant unintended Library access.
+--     ⚠ If other storage buckets exist, recreate their policies manually.
 --   ✓ Seed data uses ON CONFLICT DO NOTHING — never overwrites real values.
---   ✓ Functions use SECURITY DEFINER + SET search_path = public.
---   ✓ No CASCADE on DROP FUNCTION — old names are updated in place.
---   ✓ Does NOT drop or recreate tables.
---   ✓ Does NOT overwrite existing site_settings rows.
+--   ✓ SECURITY DEFINER functions use SET search_path = public.
+--   ✓ Every role-checking function explicitly REVOKES from PUBLIC and anon
+--     before granting to authenticated.
+--   ✓ Plaintext password column is excluded from authenticated SELECT grant
+--     on staff_accounts (column-level privilege, defense-in-depth).
+--   ✓ Election portal toggle defaults to false and is never overwritten.
+--   ✓ Voter roster is mandatory; empty roster = rejected ballot.
+--   ✓ check_voter_accreditation RPC removed — voter enumeration is closed.
+--   ✓ Payment lookup requires matric + email (two-factor).
 -- ====================================================================
--- ROLE PERMISSION MATRIX (enforced in DB, not just frontend):
+-- ROLE PERMISSION MATRIX:
 --
---  Table / Operation         | anon | super | staff | course | electoral
---  --------------------------|------|-------|-------|--------|----------
---  site_settings   READ      |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  site_settings   WRITE     |      |  ✓    |       |        |
---  social_media_links READ   |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  social_media_links WRITE  |      |  ✓    |       |        |
---  library_resources READ    |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  library_resources WRITE   |      |  ✓    |  ✓    |  ✓     |
---  past_questions READ       |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  past_questions WRITE      |      |  ✓    |  ✓    |  ✓     |
---  news_articles (published) |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  news_articles (drafts)    |      |  ✓    |  ✓    |        |
---  news_articles WRITE       |      |  ✓    |  ✓    |        |
---  events READ               |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  events WRITE              |      |  ✓    |  ✓    |        |
---  comments (approved)       |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  comments (all)            |      |  ✓    |  ✓    |        |
---  comments INSERT           |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  comments moderate         |      |  ✓    |  ✓    |        |
---  elections READ            |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  elections WRITE           |      |  ✓    |       |        |  ✓
---  candidates READ           |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
---  candidates WRITE          |      |  ✓    |       |        |  ✓
---  election_voters READ      |      |  ✓    |  ✓    |  ✓     |  ✓
---  election_voters WRITE     |      |  ✓    |       |        |  ✓
---  voter_accreditations READ |      |  ✓    |  ✓    |  ✓     |  ✓
---  voter_accreditations WRITE|      | RPC   | RPC   | RPC    | RPC (via SD RPC)
---  election_ballots READ     |      |  ✓    |  ✓    |  ✓     |  ✓
---  election_ballots WRITE    |      | RPC   | RPC   | RPC    | RPC (via SD RPC)
---  election_audit_logs READ  |      |  ✓    |  ✓    |  ✓     |  ✓
---  election_audit_logs INSERT|      |  ✓    |  ✓    |  ✓     |  ✓
---  election_audit_logs DELETE|      |  ✓    |       |        |
---  staff_accounts READ       |      |  ✓    |  ✓    |  ✓     |  ✓
---  staff_accounts WRITE      |      |  ✓    |       |        |
---  payment_records INSERT    |  ✓   |  ✓    |       |        |
---  payment_records READ      |      |  ✓    |       |        |
---  payment_records UPDATE    |      |  ✓    |       |        |
---  admin_roles READ (own row)|      |  ✓    |  ✓    |  ✓     |  ✓
---  admin_roles WRITE         |      | svc   | svc   | svc    | svc (service_role only)
+--  Table / Operation          | anon | super | staff | course | electoral
+--  ---------------------------|------|-------|-------|--------|----------
+--  site_settings   READ       |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  site_settings   WRITE      |      |  ✓    |       |        |
+--  social_media_links READ    |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  social_media_links WRITE   |      |  ✓    |       |        |
+--  library_resources READ     |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  library_resources WRITE    |      |  ✓    |  ✓    |  ✓     |
+--  past_questions READ        |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  past_questions WRITE       |      |  ✓    |  ✓    |  ✓     |
+--  news_articles (published)  |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  news_articles (drafts)     |      |  ✓    |  ✓    |        |
+--  news_articles WRITE        |      |  ✓    |  ✓    |        |
+--  events READ                |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  events WRITE               |      |  ✓    |  ✓    |        |
+--  comments (approved) READ   |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  comments (all) READ        |      |  ✓    |  ✓    |  ✓     |  ✓
+--  comments INSERT            |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  comments moderate          |      |  ✓    |  ✓    |        |
+--  elections READ             |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  elections WRITE            |      |  ✓    |       |        |  ✓
+--  candidates READ            |  ✓   |  ✓    |  ✓    |  ✓     |  ✓
+--  candidates WRITE           |      |  ✓    |       |        |  ✓
+--  election_voters READ       |      |  ✓    |  ✓    |  ✓     |  ✓
+--  election_voters WRITE      |      |  ✓    |       |        |  ✓
+--  voter_accreditations READ  |      |  ✓    |  ✓    |  ✓     |  ✓
+--  voter_accreditations WRITE |      | RPC   | RPC   | RPC    | RPC
+--  election_ballots READ      |      |  ✓    |  ✓    |  ✓     |  ✓
+--  election_ballots WRITE     |      | RPC   | RPC   | RPC    | RPC
+--  election_audit_logs READ   |      |  ✓    |  ✓    |  ✓     |  ✓
+--  election_audit_logs INSERT |      |  ✓    |  ✓    |  ✓     |  ✓
+--  election_audit_logs DELETE |      |  ✓    |       |        |
+--  staff_accounts READ (safe) |      |  ✓    |  ✓    |  ✓     |  ✓
+--  staff_accounts WRITE       |      |  ✓    |       |        |
+--  payment_records INSERT     |  ✓   |  ✓    |       |        |
+--  payment_records READ       |      |  ✓    |       |        |
+--  payment_records UPDATE     |      |  ✓    |       |        |
+--  admin_roles READ (own row) |      |  ✓    |  ✓    |  ✓     |  ✓
+--  admin_roles WRITE          |      | svc   | svc   | svc    | svc
 -- ====================================================================
 
 BEGIN;
@@ -62,13 +72,13 @@ BEGIN;
 -- ====================================================================
 -- SECTION 1: admin_roles TABLE
 -- Maps Supabase Auth UIDs to portal roles.
--- Writes: service_role only (Supabase Dashboard). No client INSERT policy.
+-- Writes: service_role only (Supabase Dashboard).
 -- ====================================================================
 
 CREATE TABLE IF NOT EXISTS admin_roles (
   user_id    uuid        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role       text        NOT NULL DEFAULT 'staff'
-                         CHECK (role IN ('super_admin', 'staff', 'course_rep', 'electoral_committee')),
+                         CHECK (role IN ('super_admin','staff','course_rep','electoral_committee')),
   email      text        NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -77,61 +87,53 @@ ALTER TABLE admin_roles ENABLE ROW LEVEL SECURITY;
 
 
 -- ====================================================================
--- SECTION 2: ROLE-CHECKING FUNCTIONS
--- All SECURITY DEFINER with SET search_path = public.
--- Old function names (is_admin_user, is_super_admin_user) kept as
--- backward-compat aliases — they are updated in place so any external
--- RLS policies that reference them by name are not broken.
+-- SECTION 2: ROLE-CHECKING HELPER FUNCTIONS
+-- All are SECURITY DEFINER with SET search_path = public.
+-- Each function explicitly REVOKES execute from both PUBLIC and anon
+-- before granting only to authenticated.  A prior migration that ran
+-- GRANT EXECUTE ... TO anon cannot be corrected by REVOKE FROM PUBLIC
+-- alone — the explicit REVOKE FROM anon is required.
 -- ====================================================================
 
--- 2a. Any row in admin_roles → "is any kind of admin"
+-- 2a. Any row in admin_roles → the caller is some kind of admin
 CREATE OR REPLACE FUNCTION is_any_admin()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS(
-    SELECT 1 FROM public.admin_roles WHERE user_id = auth.uid()
-  );
+  SELECT EXISTS(SELECT 1 FROM public.admin_roles WHERE user_id = auth.uid());
 $$;
 
 -- 2b. super_admin role only
 CREATE OR REPLACE FUNCTION is_super_admin()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS(
-    SELECT 1 FROM public.admin_roles
-    WHERE user_id = auth.uid() AND role = 'super_admin'
-  );
+  SELECT EXISTS(SELECT 1 FROM public.admin_roles
+                WHERE user_id = auth.uid() AND role = 'super_admin');
 $$;
 
 -- 2c. super_admin + electoral_committee (election management)
 CREATE OR REPLACE FUNCTION is_electoral_role()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS(
-    SELECT 1 FROM public.admin_roles
-    WHERE user_id = auth.uid()
-      AND role IN ('super_admin', 'electoral_committee')
-  );
+  SELECT EXISTS(SELECT 1 FROM public.admin_roles
+                WHERE user_id = auth.uid()
+                  AND role IN ('super_admin','electoral_committee'));
 $$;
 
 -- 2d. super_admin + staff + course_rep (library/PQ uploads)
 CREATE OR REPLACE FUNCTION is_content_admin()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS(
-    SELECT 1 FROM public.admin_roles
-    WHERE user_id = auth.uid()
-      AND role IN ('super_admin', 'staff', 'course_rep')
-  );
+  SELECT EXISTS(SELECT 1 FROM public.admin_roles
+                WHERE user_id = auth.uid()
+                  AND role IN ('super_admin','staff','course_rep'));
 $$;
 
--- 2e. super_admin + staff (news, events, comments moderation)
+-- 2e. super_admin + staff (news/events/comments moderation)
 CREATE OR REPLACE FUNCTION is_editorial_admin()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS(
-    SELECT 1 FROM public.admin_roles
-    WHERE user_id = auth.uid()
-      AND role IN ('super_admin', 'staff')
-  );
+  SELECT EXISTS(SELECT 1 FROM public.admin_roles
+                WHERE user_id = auth.uid()
+                  AND role IN ('super_admin','staff'));
 $$;
 
--- 2f. Backward-compat aliases (updated to call new implementations)
+-- 2f. Backward-compat aliases (updated in-place so any surviving RLS
+--     policies that reference old names continue to work correctly).
 CREATE OR REPLACE FUNCTION is_admin_user()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT public.is_any_admin();
@@ -142,44 +144,58 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
   SELECT public.is_super_admin();
 $$;
 
--- Strip PUBLIC execute from all role-check functions, then grant to authenticated only.
--- Anon users must not be able to probe role membership.
-REVOKE ALL ON FUNCTION is_any_admin()        FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_super_admin()      FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_electoral_role()   FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_content_admin()    FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_editorial_admin()  FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_admin_user()       FROM PUBLIC;
-REVOKE ALL ON FUNCTION is_super_admin_user() FROM PUBLIC;
-
-GRANT EXECUTE ON FUNCTION is_any_admin()        TO authenticated;
-GRANT EXECUTE ON FUNCTION is_super_admin()      TO authenticated;
-GRANT EXECUTE ON FUNCTION is_electoral_role()   TO authenticated;
-GRANT EXECUTE ON FUNCTION is_content_admin()    TO authenticated;
-GRANT EXECUTE ON FUNCTION is_editorial_admin()  TO authenticated;
-GRANT EXECUTE ON FUNCTION is_admin_user()       TO authenticated;
-GRANT EXECUTE ON FUNCTION is_super_admin_user() TO authenticated;
+-- Explicitly revoke from PUBLIC (covers the default grant created at
+-- function-definition time) AND from anon (covers any explicit grant
+-- applied by an earlier migration that REVOKE FROM PUBLIC does not undo).
+DO $$
+DECLARE
+  fns text[] := ARRAY[
+    'is_any_admin()',
+    'is_super_admin()',
+    'is_electoral_role()',
+    'is_content_admin()',
+    'is_editorial_admin()',
+    'is_admin_user()',
+    'is_super_admin_user()'
+  ];
+  fn text;
+BEGIN
+  FOREACH fn IN ARRAY fns LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',      fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM anon',        fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', fn);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', fn);
+  END LOOP;
+END $$;
 
 
 -- ====================================================================
--- SECTION 3: DROP ALL EXISTING POLICIES ON AFFECTED TABLES
--- Uses pg_policies enumeration so ALL legacy policy names are caught,
--- not just the ones known from previous migration drafts.
--- PostgreSQL permissive policies OR together; any leftover policy from
--- an earlier migration would silently grant unintended access.
+-- SECTION 3: DROP ALL EXISTING POLICIES
+-- ── 3A. Public schema tables: enumerate via pg_policies. ────────────
+-- This catches every policy from every previous migration, including
+-- legacy "TO authenticated USING (true)" policies from the initial
+-- schema and any partial fixes applied by 20261013 or 20261016.
+-- ── 3B. storage.objects: drop ALL policies unconditionally. ─────────
+-- A policy that uses USING (true) with no bucket_id filter grants
+-- access to ALL objects in ALL buckets, including Library.  Name-based
+-- filtering (ILIKE '%library%') cannot detect such policies.  Dropping
+-- all storage.objects policies is therefore the only safe approach.
+-- ⚠ ACTION REQUIRED: If this project has other storage buckets with
+--   dedicated access-control policies, recreate those policies manually
+--   in the Supabase Dashboard after this migration is applied.
 -- ====================================================================
 
 DO $$
 DECLARE
   r      RECORD;
-  tables TEXT[] := ARRAY[
-    'admin_roles', 'elections', 'candidates', 'election_voters',
-    'voter_accreditations', 'election_ballots', 'election_audit_logs',
-    'staff_accounts', 'site_settings', 'social_media_links',
-    'library_resources', 'past_questions', 'news_articles',
-    'events', 'comments', 'payment_records'
+  tables text[] := ARRAY[
+    'admin_roles','elections','candidates','election_voters',
+    'voter_accreditations','election_ballots','election_audit_logs',
+    'staff_accounts','site_settings','social_media_links',
+    'library_resources','past_questions','news_articles',
+    'events','comments','payment_records'
   ];
-  tbl    TEXT;
+  tbl    text;
 BEGIN
   FOREACH tbl IN ARRAY tables LOOP
     FOR r IN
@@ -191,16 +207,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- Drop all storage.objects policies that name 'Library' (case-insensitive).
--- Policies for other buckets (if any) are left untouched.
 DO $$
 DECLARE r RECORD;
 BEGIN
+  -- Drop ALL storage.objects policies — name-independent.
   FOR r IN
     SELECT policyname FROM pg_policies
-    WHERE schemaname = 'storage'
-      AND tablename  = 'objects'
-      AND policyname ILIKE '%library%'
+    WHERE schemaname = 'storage' AND tablename = 'objects'
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects', r.policyname);
   END LOOP;
@@ -208,9 +221,7 @@ END $$;
 
 
 -- ====================================================================
--- SECTION 4: ENABLE RLS ON ALL AFFECTED TABLES
--- FORCE = on ensures even the table owner (postgres) is subject to RLS
--- unless bypassing via SECURITY DEFINER functions.
+-- SECTION 4: ENABLE ROW LEVEL SECURITY ON ALL AFFECTED TABLES
 -- ====================================================================
 
 ALTER TABLE admin_roles          ENABLE ROW LEVEL SECURITY;
@@ -233,23 +244,19 @@ ALTER TABLE payment_records      ENABLE ROW LEVEL SECURITY;
 
 -- ====================================================================
 -- SECTION 5: FINE-GRAINED RLS POLICIES
--- Each policy is scoped to the minimum required access for each role.
 -- ====================================================================
 
 -- ── 5A. admin_roles ─────────────────────────────────────────────────
--- Each user may read only their own row (for role resolution on login).
--- No INSERT/UPDATE/DELETE — service_role (Supabase Dashboard) only.
+-- Each user may read only their own row. No client INSERT/UPDATE/DELETE.
 CREATE POLICY "admin_roles: self read"
   ON admin_roles FOR SELECT TO authenticated
   USING (user_id = auth.uid());
 
 
 -- ── 5B. site_settings ───────────────────────────────────────────────
--- All columns (bank details, logos, election_portal_enabled) are
--- intentionally public — they are displayed on the public homepage,
--- payments page, and used by the election portal status check.
--- WRITE: super_admin only — includes the election master toggle.
--- Implication: staff/course_rep/electoral_committee cannot alter settings.
+-- All columns are intentionally public: bank details, logos, and
+-- election_portal_enabled are all read by the public homepage and portal.
+-- WRITE: super_admin only — this includes the election master toggle.
 CREATE POLICY "site_settings: public read"
   ON site_settings FOR SELECT
   USING (true);
@@ -272,8 +279,6 @@ CREATE POLICY "social_media_links: super_admin write"
 
 
 -- ── 5D. library_resources ───────────────────────────────────────────
--- Upload access: content admins (super_admin + staff + course_rep).
--- course_rep can upload lecture materials for their level.
 CREATE POLICY "library_resources: public read"
   ON library_resources FOR SELECT
   USING (true);
@@ -296,20 +301,15 @@ CREATE POLICY "past_questions: content_admin write"
 
 
 -- ── 5F. news_articles ───────────────────────────────────────────────
--- Two SELECT policies (PostgreSQL permissive OR logic):
---   Policy 1 (all roles): published articles only.
---   Policy 2 (authenticated admin): ALL articles including drafts.
--- Combined: admins see everything; public sees only published.
+-- PostgreSQL permissive OR: admins see all rows; public sees only published.
 CREATE POLICY "news_articles: public read published"
   ON news_articles FOR SELECT
   USING (is_published = true);
 
-CREATE POLICY "news_articles: admin read all drafts"
+CREATE POLICY "news_articles: admin read all"
   ON news_articles FOR SELECT TO authenticated
   USING (is_any_admin());
 
--- Write: editorial admins (super_admin + staff).
--- course_rep and electoral_committee cannot author or edit news.
 CREATE POLICY "news_articles: editorial_admin insert"
   ON news_articles FOR INSERT TO authenticated
   WITH CHECK (is_editorial_admin());
@@ -336,10 +336,6 @@ CREATE POLICY "events: editorial_admin write"
 
 
 -- ── 5H. comments ────────────────────────────────────────────────────
--- SELECT policy 1: public reads approved comments.
--- SELECT policy 2: any admin reads all (for moderation dashboard).
--- INSERT: public (WITH CHECK forces is_approved=false and non-empty fields).
--- UPDATE/DELETE: editorial admins only.
 CREATE POLICY "comments: public read approved"
   ON comments FOR SELECT
   USING (is_approved = true);
@@ -348,6 +344,7 @@ CREATE POLICY "comments: admin read all"
   ON comments FOR SELECT TO authenticated
   USING (is_any_admin());
 
+-- DB enforces is_approved = false on all public inserts.
 CREATE POLICY "comments: public insert unapproved"
   ON comments FOR INSERT
   WITH CHECK (
@@ -367,9 +364,6 @@ CREATE POLICY "comments: editorial_admin delete"
 
 
 -- ── 5I. elections ───────────────────────────────────────────────────
--- Public read (required for ElectionPortal component).
--- Write: electoral role only (super_admin + electoral_committee).
--- staff and course_rep cannot create or modify elections.
 CREATE POLICY "elections: public read"
   ON elections FOR SELECT
   USING (true);
@@ -392,8 +386,6 @@ CREATE POLICY "candidates: electoral_role write"
 
 
 -- ── 5K. election_voters ─────────────────────────────────────────────
--- READ: any admin (needed for fallback collation queries in dashboard).
--- WRITE: electoral role only.
 CREATE POLICY "election_voters: admin read"
   ON election_voters FOR SELECT TO authenticated
   USING (is_any_admin());
@@ -413,28 +405,22 @@ CREATE POLICY "election_voters: electoral_role delete"
 
 
 -- ── 5L. voter_accreditations ────────────────────────────────────────
--- READ: any admin (for collation: see who voted, not how they voted).
--- INSERT/UPDATE/DELETE: SECURITY DEFINER RPC only.
--- The submit_election_ballot function runs as postgres (bypasses RLS),
--- so no client INSERT policy is needed or wanted.
--- No anon SELECT — check_voter_accreditation() RPC handles that case.
+-- READ: any admin.  INSERT: SECURITY DEFINER RPC only (no client policy).
+-- There is no check_voter_accreditation RPC: anon cannot probe who voted.
+-- Duplicate-vote protection is entirely server-side in submit_election_ballot.
 CREATE POLICY "voter_accreditations: admin read"
   ON voter_accreditations FOR SELECT TO authenticated
   USING (is_any_admin());
 
 
 -- ── 5M. election_ballots ────────────────────────────────────────────
--- Anonymous ballots (no voter identifier stored). Any admin can read
--- for result computation. Only the SD RPC may insert.
+-- Ballots are anonymous (no matric stored). INSERT: SD RPC only.
 CREATE POLICY "election_ballots: admin read"
   ON election_ballots FOR SELECT TO authenticated
   USING (is_any_admin());
 
 
 -- ── 5N. election_audit_logs ─────────────────────────────────────────
--- Any admin can read and insert audit events (logElectionAuditEvent
--- is called from the dashboard by any admin role).
--- Only super_admin may modify or delete audit records.
 CREATE POLICY "election_audit_logs: admin read"
   ON election_audit_logs FOR SELECT TO authenticated
   USING (is_any_admin());
@@ -454,10 +440,8 @@ CREATE POLICY "election_audit_logs: super_admin delete"
 
 
 -- ── 5O. staff_accounts ──────────────────────────────────────────────
--- READ: any admin (for display in dashboard staff list).
--- WRITE: super_admin only.
--- NOTE: The password column is a legacy plaintext field and must never
--- be selected in application queries (see db.ts getStaffAccounts).
+-- RLS (row-level):  any admin can read; super_admin can write.
+-- Column-level:     password is excluded from the SELECT grant (Section 5Z).
 CREATE POLICY "staff_accounts: admin read"
   ON staff_accounts FOR SELECT TO authenticated
   USING (is_any_admin());
@@ -469,18 +453,18 @@ CREATE POLICY "staff_accounts: super_admin write"
 
 
 -- ── 5P. payment_records ─────────────────────────────────────────────
--- INSERT: public (students submit dues). Status locked to 'Pending Verification'.
--- With CHECK enforces minimal data quality server-side.
--- SELECT/UPDATE/DELETE: super_admin only (PII — name, email, phone, matric).
--- Anon payment status lookup goes through lookup_payment_status() RPC (Section 8).
+-- INSERT: public (student dues submission; status locked to Pending).
+-- SELECT/UPDATE: super_admin only (full PII — name, email, phone, matric).
+-- Anon status lookup: lookup_payment_status(matric, email) RPC (Section 8).
+-- DELETE: no policy — payment audit trail must be preserved.
 CREATE POLICY "payment_records: public insert"
   ON payment_records FOR INSERT
   WITH CHECK (
     payment_status = 'Pending Verification'
-    AND length(trim(coalesce(matric_number,  ''))) > 0
-    AND length(trim(coalesce(surname,        ''))) > 0
-    AND length(trim(coalesce(first_name,     ''))) > 0
-    AND length(trim(coalesce(email,          ''))) > 0
+    AND length(trim(coalesce(matric_number, ''))) > 0
+    AND length(trim(coalesce(surname,       ''))) > 0
+    AND length(trim(coalesce(first_name,    ''))) > 0
+    AND length(trim(coalesce(email,         ''))) > 0
     AND amount_paid > 0
   );
 
@@ -493,16 +477,84 @@ CREATE POLICY "payment_records: super_admin update"
   USING (is_super_admin())
   WITH CHECK (is_super_admin());
 
-CREATE POLICY "payment_records: super_admin delete"
-  ON payment_records FOR DELETE TO authenticated
-  USING (is_super_admin());
+
+-- ====================================================================
+-- SECTION 5Z: STAFF_ACCOUNTS PASSWORD PROTECTION — TWO-LAYER DEFENSE
+-- ====================================================================
+-- LAYER 1 — Column-level privilege (database enforcement)
+--
+-- PostgreSQL column-level SELECT privileges restrict which columns a
+-- role may read.  After REVOKING the table-level SELECT grant and
+-- re-granting only the safe columns:
+--   SELECT id, name, email, created_at  →  allowed
+--   SELECT *  OR  SELECT password        →  permission denied
+--
+-- Supabase / PostgREST honours column-level grants: a request for
+-- select=password (or select=*) is rejected at the privilege layer
+-- before RLS is evaluated.
+--
+-- The REVOKE is a no-op if the role was never granted table-level
+-- SELECT (tables created via SQL migration, not Studio UI).  In all
+-- cases the subsequent column-level GRANT is applied correctly.
+--
+-- LAYER 2 — SECURITY DEFINER RPC get_staff_accounts()
+--
+-- As an independent second defence, db.ts calls the function below
+-- which is defined as SECURITY DEFINER and hard-codes the safe column
+-- list in its body.  The password column is structurally absent from
+-- the function signature regardless of table-level grants.
+-- The function also re-enforces admin authorization explicitly.
+--
+-- db.ts also specifies explicit column names (id, name, email,
+-- created_at) in its direct table query — a third application-level
+-- layer that does not depend on the database-level controls above.
+--
+-- FUTURE MIGRATION — plaintext password elimination:
+--   1. Invite each staff member to create a Supabase Auth account with
+--      the same email address used in staff_accounts.
+--   2. Insert their auth.users.id into admin_roles with the correct role.
+--   3. Once ALL staff are migrated and using Supabase Auth, run:
+--        ALTER TABLE staff_accounts DROP COLUMN password;
+-- ====================================================================
+
+-- Layer 1: revoke then re-grant with safe columns only.
+REVOKE SELECT ON TABLE public.staff_accounts FROM anon;
+REVOKE SELECT ON TABLE public.staff_accounts FROM authenticated;
+
+GRANT SELECT (id, name, email, created_at)
+  ON TABLE public.staff_accounts TO authenticated;
+
+-- Layer 2: SECURITY DEFINER function — password column is absent from
+-- the return type definition, so it can never appear in a response
+-- even if table-level grants are altered by a subsequent migration.
+-- Authorization check: only callers with an admin_roles row get data.
+CREATE OR REPLACE FUNCTION get_staff_accounts()
+RETURNS TABLE(id uuid, name text, email text, created_at timestamptz)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT sa.id, sa.name, sa.email, sa.created_at
+  FROM   public.staff_accounts sa
+  WHERE  EXISTS (
+    SELECT 1 FROM public.admin_roles WHERE user_id = auth.uid()
+  )
+  ORDER BY sa.created_at DESC;
+$$;
+
+REVOKE ALL ON FUNCTION get_staff_accounts() FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_staff_accounts() FROM anon;
+REVOKE ALL ON FUNCTION get_staff_accounts() FROM authenticated;
+GRANT  EXECUTE ON FUNCTION get_staff_accounts() TO authenticated;
 
 
 -- ====================================================================
 -- SECTION 6: get_election_results — WITH INTERNAL AUTH CHECK
 -- SECURITY DEFINER bypasses all table RLS, so the function must
--- explicitly verify the caller is an authorised admin.
--- Return format is identical to the existing dashboard consumer.
+-- explicitly verify the caller is an authorised admin before returning
+-- any election data.  An EXCEPTION WHEN OTHERS handler prevents raw
+-- PostgreSQL error text from leaking through the API response.
 -- ====================================================================
 
 CREATE OR REPLACE FUNCTION get_election_results(p_election_id uuid)
@@ -527,18 +579,16 @@ DECLARE
   v_candidates_array  jsonb;
   v_candidate_tallies jsonb := '{}'::jsonb;
 BEGIN
-  -- ──────────────────────────────────────────────────────────────
-  -- EXPLICIT AUTHORIZATION CHECK
-  -- Because SECURITY DEFINER bypasses RLS, any authenticated user
-  -- who can call this RPC would otherwise receive full election data.
-  -- We check admin_roles manually. Non-admin authenticated users and
-  -- anon callers receive a JSON error, not election data.
-  -- ──────────────────────────────────────────────────────────────
+  -- ── AUTHORIZATION CHECK ─────────────────────────────────────────
+  -- SECURITY DEFINER means this function executes as its owner and
+  -- bypasses RLS.  We must therefore enforce admin authorisation
+  -- explicitly.  Non-admin authenticated callers and all anon callers
+  -- receive a JSON error object, not election data.
   IF NOT EXISTS (
     SELECT 1 FROM public.admin_roles WHERE user_id = auth.uid()
   ) THEN
     RETURN jsonb_build_object(
-      'error', 'Access denied. Administrative credentials required to view election results.'
+      'error', 'Access denied. Administrative privileges required.'
     );
   END IF;
 
@@ -571,8 +621,7 @@ BEGIN
 
   FOR v_position IN
     SELECT DISTINCT position AS title
-    FROM public.candidates
-    WHERE election_id = p_election_id
+    FROM public.candidates WHERE election_id = p_election_id
     ORDER BY position
   LOOP
     SELECT COUNT(*) INTO v_pos_votes
@@ -582,8 +631,7 @@ BEGIN
     v_candidates_array := '[]'::jsonb;
 
     FOR v_candidate IN
-      SELECT id, name
-      FROM public.candidates
+      SELECT id, name FROM public.candidates
       WHERE election_id = p_election_id AND position = v_position.title
       ORDER BY name
     LOOP
@@ -638,30 +686,45 @@ BEGIN
     'positions',          v_positions_array,
     'candidate_tallies',  v_candidate_tallies
   );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Log the technical detail server-side; return a safe message to the client.
+    RAISE WARNING '[get_election_results] error for election_id=%: %',
+      p_election_id, SQLERRM;
+    RETURN jsonb_build_object(
+      'error', 'An error occurred while computing election results. Please try again.'
+    );
 END;
 $$;
 
--- Grant EXECUTE to authenticated only; anon cannot call this RPC.
--- Non-admin authenticated callers receive the JSON error from the
--- internal auth check above, not raw election data.
+-- anon cannot call this RPC (GRANT TO authenticated only).
+-- Non-admin authenticated callers receive the JSON auth-error from above.
 REVOKE ALL ON FUNCTION get_election_results(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_election_results(uuid) FROM anon;
+REVOKE ALL ON FUNCTION get_election_results(uuid) FROM authenticated;
 GRANT  EXECUTE ON FUNCTION get_election_results(uuid) TO authenticated;
 
 
 -- ====================================================================
--- SECTION 7: submit_election_ballot — HARDENED VALIDATION
--- Additional checks added in this version:
---   • Null / malformed payload guard
---   • Duplicate position detection (two votes for same office)
---   • Duplicate candidate detection
---   • Per-item null candidate_id guard
--- Existing checks preserved:
---   • Global portal toggle (site_settings.election_portal_enabled)
---   • Electoral body exemption (server-side)
---   • Election status = 'open'
---   • Voter roster eligibility
---   • Candidate-to-election/position validation
---   • Duplicate-vote prevention via PK + unique_violation catch
+-- SECTION 7: submit_election_ballot — HARDENED
+-- Changes from v5:
+--   • Voter roster is now MANDATORY.  If election_voters has no rows
+--     for this election, the ballot is rejected immediately.  The
+--     previous behaviour (silently permitting unrestricted voting when
+--     the roster was empty) was a critical misconfiguration risk.
+--   • All other v5 improvements retained:
+--     – null/malformed payload guard
+--     – duplicate position detection (one vote per office)
+--     – duplicate candidate detection
+--     – per-item null candidate_id guard
+--     – portal toggle check
+--     – electoral body exemption (server-side)
+--     – election status = 'open' check
+--     – candidate-to-election/position validation
+--     – atomic duplicate-vote prevention (pre-check + PK constraint)
+--     – EXCEPTION WHEN unique_violation (race condition safety)
+--     – EXCEPTION WHEN OTHERS (safe error, no SQLERRM to client)
 -- ====================================================================
 
 CREATE OR REPLACE FUNCTION submit_election_ballot(
@@ -686,13 +749,13 @@ DECLARE
   v_existing_acc   int;
   v_item           record;
 BEGIN
-  -- ── 1. Matric normalisation and basic format check ──────────────
+  -- ── 1. Matric validation and normalisation ──────────────────────
   IF p_matric_number IS NULL OR TRIM(p_matric_number) = '' THEN
     RETURN jsonb_build_object('success', false,
       'error', 'Matriculation number is required.');
   END IF;
 
-  -- Normalise: uppercase, trim, collapse all internal whitespace
+  -- Uppercase, trim leading/trailing, collapse internal whitespace.
   v_norm_matric := REGEXP_REPLACE(UPPER(TRIM(p_matric_number)), '\s+', '', 'g');
 
   IF LENGTH(v_norm_matric) < 5 THEN
@@ -711,10 +774,10 @@ BEGIN
 
   IF v_ballot_count = 0 THEN
     RETURN jsonb_build_object('success', false,
-      'error', 'Your ballot is empty. Please select at least one candidate before submitting.');
+      'error', 'Your ballot is empty. Please select at least one candidate.');
   END IF;
 
-  -- ── 3. Duplicate position check (only one vote per office) ─────
+  -- ── 3. Duplicate position check (one vote per office) ──────────
   SELECT COUNT(*) INTO v_dup_count
   FROM (
     SELECT x.position_id
@@ -725,7 +788,7 @@ BEGIN
 
   IF v_dup_count > 0 THEN
     RETURN jsonb_build_object('success', false,
-      'error', 'Invalid ballot: multiple candidate selections for the same position are not permitted.');
+      'error', 'Invalid ballot: multiple selections for the same position are not permitted.');
   END IF;
 
   -- ── 4. Duplicate candidate check ───────────────────────────────
@@ -740,10 +803,10 @@ BEGIN
 
   IF v_dup_count > 0 THEN
     RETURN jsonb_build_object('success', false,
-      'error', 'Invalid ballot: the same candidate appears more than once. Each candidate may be selected only once.');
+      'error', 'Invalid ballot: the same candidate appears more than once.');
   END IF;
 
-  -- ── 5. Global election portal toggle check ─────────────────────
+  -- ── 5. Global election portal toggle ───────────────────────────
   SELECT election_portal_enabled INTO v_portal_enabled
   FROM public.site_settings WHERE id = 1;
 
@@ -752,7 +815,7 @@ BEGIN
       'error', 'The election portal is currently closed. Please check back during the official voting period.');
   END IF;
 
-  -- ── 6. Electoral body exemption (server-side — cannot be bypassed) ─
+  -- ── 6. Electoral body exemption (server-side enforcement) ───────
   IF v_norm_matric = ANY(ARRAY[
     '2023/0445', '2023/1075', '2025/7936', '2024/1589', '2023/1002'
   ]) THEN
@@ -770,37 +833,46 @@ BEGIN
       'error', 'This election is not currently open for voting.');
   END IF;
 
-  -- ── 8. Voter roster eligibility (only when roster is loaded) ────
+  -- ── 8. MANDATORY roster check ──────────────────────────────────
+  -- The voter roster MUST be configured before any ballot is accepted.
+  -- An empty roster is treated as a misconfiguration, not an invitation
+  -- to allow unrestricted voting.  If the electoral committee has not
+  -- yet imported the voter list, all submissions are blocked.
   SELECT COUNT(*) INTO v_roster_count
   FROM public.election_voters WHERE election_id = p_election_id;
 
-  IF v_roster_count > 0 THEN
-    SELECT is_eligible INTO v_is_eligible
-    FROM public.election_voters
-    WHERE election_id  = p_election_id
-      AND UPPER(TRIM(matric_number)) = v_norm_matric;
-
-    IF NOT FOUND THEN
-      RETURN jsonb_build_object('success', false,
-        'error', 'Your matriculation number is not on the accredited voter roster for this election.');
-    END IF;
-
-    IF v_is_eligible IS DISTINCT FROM true THEN
-      RETURN jsonb_build_object('success', false,
-        'error', 'Your student record has been marked ineligible to vote in this election.');
-    END IF;
+  IF v_roster_count = 0 THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'The voter roster for this election has not been configured. Please contact the electoral committee before attempting to vote.');
   END IF;
 
-  -- ── 9. Candidate validation: each ballot item must reference a real
-  --       candidate that belongs to this election AND the stated position.
-  --       Prevents cross-election ballot stuffing and forged position IDs.
+  -- ── 9. Individual eligibility check ────────────────────────────
+  SELECT is_eligible INTO v_is_eligible
+  FROM public.election_voters
+  WHERE election_id  = p_election_id
+    AND UPPER(TRIM(matric_number)) = v_norm_matric;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'Your matriculation number is not on the accredited voter roster for this election.');
+  END IF;
+
+  IF v_is_eligible IS DISTINCT FROM true THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'Your student record has been marked ineligible to vote in this election.');
+  END IF;
+
+  -- ── 10. Candidate validation ────────────────────────────────────
+  -- Each ballot item must name a candidate that actually belongs to
+  -- this election AND the stated position.  Prevents cross-election
+  -- ballot stuffing and forged position IDs.
   FOR v_item IN
     SELECT * FROM jsonb_to_recordset(p_ballot_items)
       AS x(position_id text, candidate_id uuid)
   LOOP
     IF v_item.candidate_id IS NULL THEN
       RETURN jsonb_build_object('success', false,
-        'error', 'Invalid ballot: null candidate_id detected in submission.');
+        'error', 'Invalid ballot: a null candidate_id was detected.');
     END IF;
 
     SELECT COUNT(*) INTO v_candidate_ok
@@ -811,11 +883,11 @@ BEGIN
 
     IF v_candidate_ok = 0 THEN
       RETURN jsonb_build_object('success', false,
-        'error', 'Invalid ballot: one or more selections do not correspond to valid candidates for this election. Submission rejected.');
+        'error', 'Invalid ballot: one or more selections do not match valid candidates for this election. Submission rejected.');
     END IF;
   END LOOP;
 
-  -- ── 10. Duplicate-vote pre-check (optimistic, before PK insert) ─
+  -- ── 11. Duplicate-vote pre-check (optimistic) ───────────────────
   SELECT COUNT(*) INTO v_existing_acc
   FROM public.voter_accreditations
   WHERE election_id = p_election_id AND matric_number = v_norm_matric;
@@ -825,15 +897,13 @@ BEGIN
       'error', 'This matriculation number has already cast a ballot in this election.');
   END IF;
 
-  -- ── 11. ATOMIC INSERT: accreditation first, then ballot entries ─
-  -- The PRIMARY KEY (election_id, matric_number) on voter_accreditations
-  -- is the final, concurrency-safe duplicate-vote guarantee. A second
-  -- concurrent INSERT for the same (election_id, matric_number) raises
-  -- unique_violation, caught below.
+  -- ── 12. ATOMIC INSERT ───────────────────────────────────────────
+  -- Accreditation row first: PRIMARY KEY (election_id, matric_number)
+  -- is the final concurrency-safe duplicate-vote guarantee.
   INSERT INTO public.voter_accreditations (election_id, matric_number, reference_code, voted_at)
   VALUES (p_election_id, v_norm_matric, p_reference_code, now());
 
-  -- Ballot entries are anonymous — no matric_number column here.
+  -- Anonymous ballot entries: no matric linkage.
   FOR v_item IN
     SELECT * FROM jsonb_to_recordset(p_ballot_items)
       AS x(position_id text, candidate_id uuid)
@@ -846,39 +916,50 @@ BEGIN
 
 EXCEPTION
   WHEN unique_violation THEN
-    -- Concurrent ballot: PK constraint fired before we could check above.
+    -- PK constraint fired: concurrent duplicate caught.
     RETURN jsonb_build_object('success', false,
       'error', 'This matriculation number has already cast a ballot in this election.');
   WHEN OTHERS THEN
-    -- Log without leaking matric to the client
-    RAISE WARNING '[submit_election_ballot] Unhandled error election_id=%: %',
+    RAISE WARNING '[submit_election_ballot] error election_id=%: %',
       p_election_id, SQLERRM;
     RETURN jsonb_build_object('success', false,
       'error', 'An unexpected error occurred. Please try again or contact the electoral committee.');
 END;
 $$;
 
--- Anon voters (not authenticated) must be able to call this.
 REVOKE ALL ON FUNCTION submit_election_ballot(uuid, text, jsonb, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION submit_election_ballot(uuid, text, jsonb, text) FROM anon;
+REVOKE ALL ON FUNCTION submit_election_ballot(uuid, text, jsonb, text) FROM authenticated;
 GRANT  EXECUTE ON FUNCTION submit_election_ballot(uuid, text, jsonb, text) TO anon, authenticated;
 
 
 -- ====================================================================
--- SECTION 8: lookup_payment_status() — REPLACES payment_status_view
--- Root cause of the view problem:
---   • The view is SECURITY INVOKER (default): when anon queries it,
---     PostgreSQL checks anon's permissions on payment_records, which our
---     new RLS blocks. Result: 0 rows — public payment tracking is broken.
---   • Even if permissions were relaxed, SELECT * on the view by anon
---     would return ALL students' records (bulk enumeration risk).
--- Fix: SECURITY DEFINER function filters by the supplied matric and
--- returns only non-PII columns. Anon can only retrieve records for the
--- single matric they supply — bulk enumeration is impossible.
+-- SECTION 8: lookup_payment_status(p_matric, p_email)
+--            REPLACES the payment_status_view.
+--
+-- WHY TWO FACTORS?
+--   A matric number is shared information — classmates, lecturers,
+--   and administrative staff all know each other's matric numbers.
+--   Treating matric alone as identity would allow any student to look
+--   up any other student's payment history.
+--
+--   Requiring the email address used during payment submission provides
+--   a second factor.  Only the submitting student is likely to know the
+--   exact email they used.  The function returns 0 rows if either field
+--   does not match, so it cannot be used to guess email addresses.
+--
+-- SECURITY PROPERTIES:
+--   • SECURITY DEFINER: reads payment_records bypassing RLS.
+--   • Returns only non-PII columns (no name, phone).
+--   • Filters to one specific (matric, email) pair — bulk enumeration
+--     is impossible without knowing both values.
+--   • NULL or empty-string inputs produce 0 rows, not an error.
+--   • Callable by anon (students tracking their own dues).
 -- ====================================================================
 
 DROP VIEW IF EXISTS payment_status_view;
 
-CREATE OR REPLACE FUNCTION lookup_payment_status(p_matric text)
+CREATE OR REPLACE FUNCTION lookup_payment_status(p_matric text, p_email text)
 RETURNS TABLE(
   matric_number    text,
   level            text,
@@ -902,55 +983,52 @@ AS $$
     pr.payment_status,
     pr.created_at
   FROM public.payment_records pr
-  WHERE UPPER(TRIM(pr.matric_number)) = UPPER(TRIM(p_matric))
+  WHERE
+    -- Guard: if either input is empty the query returns 0 rows safely.
+    length(trim(coalesce(p_matric, ''))) > 0
+    AND length(trim(coalesce(p_email, ''))) > 0
+    AND UPPER(TRIM(pr.matric_number)) = UPPER(TRIM(p_matric))
+    AND UPPER(TRIM(pr.email))         = UPPER(TRIM(p_email))
   ORDER BY pr.created_at DESC;
 $$;
 
--- Anon callers (students checking their own status) and admins.
-REVOKE ALL ON FUNCTION lookup_payment_status(text) FROM PUBLIC;
-GRANT  EXECUTE ON FUNCTION lookup_payment_status(text) TO anon, authenticated;
+REVOKE ALL ON FUNCTION lookup_payment_status(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION lookup_payment_status(text, text) FROM anon;
+REVOKE ALL ON FUNCTION lookup_payment_status(text, text) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION lookup_payment_status(text, text) TO anon, authenticated;
+
+-- Drop the old single-argument overload if it exists (created by v5 draft).
+DROP FUNCTION IF EXISTS lookup_payment_status(text);
 
 
 -- ====================================================================
--- SECTION 9: check_voter_accreditation() — SAFE ACCREDITATION LOOKUP
--- Replaces direct anon SELECT on voter_accreditations (now RLS-locked).
--- Returns only a boolean: did this matric vote in this election?
--- No bulk enumeration: caller must supply both election_id and matric.
+-- SECTION 9: VOTER ENUMERATION — check_voter_accreditation REMOVED
+-- The v5 draft included a check_voter_accreditation(election_id, matric)
+-- RPC callable by anon.  Although it returned only a boolean, an
+-- adversary with a list of matric numbers could iterate it to discover
+-- which students had voted.  Since:
+--   (a) duplicate-vote protection is fully enforced server-side inside
+--       submit_election_ballot (pre-check + PK constraint + unique_violation
+--       handler), and
+--   (b) the "already voted" UX short-circuit in ElectionPortal.tsx is a
+--       convenience only,
+-- the function is removed entirely.  The portal falls back to a direct
+-- query on voter_accreditations which RLS blocks for anon, returning 0
+-- rows (accredited: false).  Repeat voters submit their ballot and
+-- receive the server-side rejection message.
 -- ====================================================================
 
-CREATE OR REPLACE FUNCTION check_voter_accreditation(
-  p_election_id uuid,
-  p_matric      text
-) RETURNS jsonb
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT CASE
-    WHEN COUNT(*) > 0
-      THEN jsonb_build_object('accredited', true)
-      ELSE jsonb_build_object('accredited', false)
-  END
-  FROM public.voter_accreditations
-  WHERE election_id  = p_election_id
-    AND matric_number = REGEXP_REPLACE(UPPER(TRIM(p_matric)), '\s+', '', 'g');
-$$;
-
-REVOKE ALL ON FUNCTION check_voter_accreditation(uuid, text) FROM PUBLIC;
-GRANT  EXECUTE ON FUNCTION check_voter_accreditation(uuid, text) TO anon, authenticated;
+DROP FUNCTION IF EXISTS check_voter_accreditation(uuid, text);
 
 
 -- ====================================================================
 -- SECTION 10: SCHEMA COLUMN ADDITIONS (idempotent)
 -- ====================================================================
 
--- 10a. news_articles publish workflow
 ALTER TABLE news_articles
   ADD COLUMN IF NOT EXISTS is_published boolean     NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS published_at timestamptz DEFAULT now();
 
--- Back-fill: existing articles get published_at = created_at
 UPDATE news_articles
   SET published_at = created_at
   WHERE published_at IS NULL AND is_published = true;
@@ -958,15 +1036,14 @@ UPDATE news_articles
 CREATE INDEX IF NOT EXISTS idx_news_articles_published
   ON news_articles(is_published, published_at DESC);
 
--- 10b. Election portal master toggle
 ALTER TABLE site_settings
   ADD COLUMN IF NOT EXISTS election_portal_enabled boolean NOT NULL DEFAULT false;
 
 
 -- ====================================================================
 -- SECTION 11: SEED DATA (ON CONFLICT DO NOTHING)
--- Never overwrites existing production values.
--- Placeholder text is intentionally obvious — update in dashboard.
+-- Placeholder text is intentionally obvious. Update via admin dashboard
+-- before launch. Real production values are never overwritten.
 -- ====================================================================
 
 INSERT INTO site_settings (
@@ -981,9 +1058,7 @@ INSERT INTO site_settings (
   1,
   'Welcome to NSBS-UNILESA',
   'Nigerian Society of Biochemistry Students — University of Ilesa Chapter.',
-  '/hero_bg.jpg',
-  '/logo_nsbs.jpg',
-  '/logo_unilesa.jpg',
+  '/hero_bg.jpg', '/logo_nsbs.jpg', '/logo_unilesa.jpg',
   '[Update vision statement in admin dashboard]',
   '[Update mission statement in admin dashboard]',
   '[BANK NAME — update in dashboard]',
@@ -995,7 +1070,7 @@ INSERT INTO site_settings (
   '[GENERAL EMAIL — update in dashboard]',
   '[WHATSAPP — update in dashboard]',
   'Nigerian Society of Biochemistry Students (NSBS) — University of Ilesa Chapter.',
-  false
+  false   -- election portal CLOSED by default; super_admin opens it explicitly
 ) ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO social_media_links (platform, url, username) VALUES
@@ -1006,13 +1081,13 @@ ON CONFLICT (platform) DO NOTHING;
 
 -- ====================================================================
 -- SECTION 12: STORAGE — Library Bucket
+-- New policies apply only to bucket_id = 'Library'.
 -- ====================================================================
 
 INSERT INTO storage.buckets (id, name, public)
   VALUES ('Library', 'Library', true)
   ON CONFLICT (id) DO UPDATE SET public = true;
 
--- content_admin (super_admin + staff + course_rep) may upload/delete.
 CREATE POLICY "Library: public read"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'Library');
@@ -1034,105 +1109,129 @@ COMMIT;
 
 
 -- ====================================================================
--- VERIFICATION QUERIES (run separately in SQL Editor after migration)
+-- POST-COMMIT SETUP (manual actions — do not run inside the transaction)
 -- ====================================================================
 /*
 
--- V1: All seven security functions exist and are SECURITY DEFINER:
-SELECT proname, prosecdef, proconfig
-FROM pg_proc
-WHERE proname IN (
-  'is_any_admin','is_super_admin','is_electoral_role',
-  'is_content_admin','is_editorial_admin',
-  'is_admin_user','is_super_admin_user',
-  'get_election_results','submit_election_ballot',
-  'lookup_payment_status','check_voter_accreditation'
-)
-AND pronamespace = 'public'::regnamespace
-ORDER BY proname;
--- Expected: 11 rows, prosecdef = true for all
+ACTION 1 — CREATE SUPER ADMIN (first-time only):
+  Supabase Dashboard → Authentication → Users → Add User
+  Then in SQL Editor:
+    INSERT INTO admin_roles (user_id, role, email)
+    VALUES ('<USER_UUID_FROM_AUTH>', 'super_admin', '<email>');
 
--- V2: RLS enabled on all tables:
-SELECT tablename, rowsecurity
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY tablename;
--- Expected: rowsecurity = true for all listed tables
+ACTION 2 — DISABLE PUBLIC SIGNUPS:
+  Authentication → Providers → Email → "Enable sign ups" OFF
 
--- V3: Policy inventory — count per table:
-SELECT tablename, COUNT(*) AS policy_count
-FROM pg_policies
-WHERE schemaname = 'public'
-GROUP BY tablename
-ORDER BY tablename;
+ACTION 3 — VERIFY COLUMN-LEVEL GRANTS:
+  Run as an authenticated non-super-admin session:
+    SELECT * FROM staff_accounts;
+  Expected: error "permission denied for column password"
+    OR only id, name, email, created_at returned (depending on client).
+  The password column must not appear in any response.
 
--- V4: site_settings has election_portal_enabled = false:
-SELECT id, election_portal_enabled FROM site_settings;
+ACTION 4 — VERIFY FUNCTION GRANTS:
+  SELECT grantee, routine_name, privilege_type
+  FROM information_schema.role_routine_grants
+  WHERE routine_schema = 'public'
+    AND routine_name IN ('is_any_admin','is_super_admin','get_election_results',
+                         'submit_election_ballot','lookup_payment_status')
+  ORDER BY routine_name, grantee;
+  Expected: no PUBLIC or anon rows. Only authenticated (and anon for
+  submit_election_ballot and lookup_payment_status).
 
--- V5: No anon-readable rows in voter_accreditations via RLS:
--- (Run as anon API key) SELECT COUNT(*) FROM voter_accreditations;
--- Expected: 0 rows returned (RLS blocks anon) OR permission error
+ACTION 5 — VERIFY ROSTER ENFORCEMENT:
+  With portal enabled and an election in 'open' status but NO rows in
+  election_voters for that election:
+    SELECT submit_election_ballot('<id>', '2023/0001', '[{"position_id":"President","candidate_id":"<uuid>"}]', 'REF001');
+  Expected: {"success": false, "error": "The voter roster for this election has not been configured..."}
 
--- V6: get_election_results returns auth error for anon:
--- (Run as anon API key)
--- SELECT get_election_results('<any-uuid>');
--- Expected: {"error": "Access denied. Administrative credentials required..."}
+ACTION 6 — VERIFY PAYMENT LOOKUP:
+  SELECT * FROM lookup_payment_status('2023/0001', 'correct@email.com');  -- returns rows
+  SELECT * FROM lookup_payment_status('2023/0001', 'wrong@email.com');    -- returns 0 rows
+  SELECT * FROM lookup_payment_status('2023/0001', NULL);                 -- returns 0 rows
 
--- V7: payment_status_view is gone:
-SELECT table_name FROM information_schema.views
-WHERE table_schema = 'public' AND table_name = 'payment_status_view';
--- Expected: 0 rows
+ACTION 7 — VERIFY STORAGE POLICIES:
+  In Supabase Dashboard → Storage → Policies: confirm only 4 Library
+  policies exist.  If other buckets are in use, recreate their policies now.
 
--- V8: lookup_payment_status function exists:
-SELECT routine_name FROM information_schema.routines
-WHERE routine_schema = 'public' AND routine_name = 'lookup_payment_status';
--- Expected: 1 row
+ACTION 8 — UPDATE FRONTEND:
+  The tracker on /payments now requires matric + email (see db.ts and
+  payments/page.tsx changes).  Verify the tracker form shows both fields.
 
--- V9: Library bucket is public:
-SELECT id, name, public FROM storage.buckets WHERE id = 'Library';
-
--- V10: All function grants (check no PUBLIC grants remain):
-SELECT grantee, routine_name, privilege_type
-FROM information_schema.role_routine_grants
-WHERE routine_schema = 'public'
-  AND routine_name IN (
-    'is_any_admin','is_super_admin','get_election_results',
-    'submit_election_ballot','lookup_payment_status'
-  )
-ORDER BY routine_name, grantee;
+ACTION 9 — OPEN ELECTION PORTAL (only when election day arrives):
+  Admin Dashboard → Events & Voting → Election Portal Control
+  → Click "Open Election Portal" → confirm both prompts.
 
 */
 
 
 -- ====================================================================
--- POST-MIGRATION MANUAL ACTIONS
+-- VERIFICATION QUERIES (run separately in SQL Editor after migration)
 -- ====================================================================
 /*
 
-ACTION 1 — CREATE SUPER ADMINISTRATOR (first-time setup only):
-  In Supabase Dashboard → Authentication → Users → Add User
-  Then run in SQL Editor:
-    INSERT INTO admin_roles (user_id, role, email)
-    VALUES ('<USER_UUID>', 'super_admin', '<email>');
+-- V1: All helper + RPC functions are SECURITY DEFINER:
+SELECT proname, prosecdef, proconfig FROM pg_proc
+WHERE proname IN (
+  'is_any_admin','is_super_admin','is_electoral_role',
+  'is_content_admin','is_editorial_admin',
+  'is_admin_user','is_super_admin_user',
+  'get_election_results','submit_election_ballot','lookup_payment_status'
+)
+AND pronamespace = 'public'::regnamespace
+ORDER BY proname;
+-- Expected: 10 rows, prosecdef=true, proconfig contains search_path=public
 
-ACTION 2 — DISABLE PUBLIC SIGNUPS:
-  Supabase Dashboard → Authentication → Providers → Email
-  → Toggle "Enable sign ups" OFF
+-- V2: check_voter_accreditation is gone:
+SELECT proname FROM pg_proc
+WHERE proname = 'check_voter_accreditation'
+  AND pronamespace = 'public'::regnamespace;
+-- Expected: 0 rows
 
-ACTION 3 — SET AUTH REDIRECT URLs:
-  Supabase Dashboard → Authentication → URL Configuration
-  Site URL: https://your-production-domain.vercel.app
-  Redirect URLs: https://your-production-domain.vercel.app/**
+-- V3: lookup_payment_status has 2 parameters:
+SELECT pronargs FROM pg_proc
+WHERE proname = 'lookup_payment_status'
+  AND pronamespace = 'public'::regnamespace;
+-- Expected: 1 row, pronargs = 2
 
-ACTION 4 — UPDATE REAL SITE SETTINGS:
-  Admin Dashboard → Site Settings tab → update all placeholder values.
-  Do NOT leave '[BANK NAME — update in dashboard]' in production.
+-- V4: payment_status_view is gone:
+SELECT table_name FROM information_schema.views
+WHERE table_schema = 'public' AND table_name = 'payment_status_view';
+-- Expected: 0 rows
 
-ACTION 5 — VERIFY LIBRARY BUCKET:
-  Supabase Dashboard → Storage → confirm 'Library' bucket exists (public).
+-- V5: RLS enabled on all 16 tables:
+SELECT tablename, rowsecurity FROM pg_tables
+WHERE schemaname = 'public' ORDER BY tablename;
+-- Expected: rowsecurity = true for all listed tables
 
-ACTION 6 — UPDATE src/lib/db.ts:
-  getPaymentByMatric  → now calls lookup_payment_status RPC (see instructions)
-  checkVoterAccreditationStatus → now calls check_voter_accreditation RPC
+-- V6: Policy inventory per table:
+SELECT tablename, COUNT(*) FROM pg_policies
+WHERE schemaname = 'public' GROUP BY tablename ORDER BY tablename;
+
+-- V7: No anon/public execute on role-checking functions:
+SELECT grantee, routine_name FROM information_schema.role_routine_grants
+WHERE routine_schema = 'public'
+  AND routine_name IN ('is_any_admin','is_super_admin','is_electoral_role',
+                       'is_content_admin','is_editorial_admin')
+  AND grantee IN ('PUBLIC','anon');
+-- Expected: 0 rows
+
+-- V8: staff_accounts column-level grants (password excluded):
+SELECT grantee, column_name, privilege_type
+FROM information_schema.column_privileges
+WHERE table_schema = 'public' AND table_name = 'staff_accounts'
+  AND privilege_type = 'SELECT'
+ORDER BY grantee, column_name;
+-- Expected: authenticated → id, name, email, created_at only (no password row)
+
+-- V9: Storage policies:
+SELECT policyname FROM pg_policies
+WHERE schemaname = 'storage' AND tablename = 'objects'
+ORDER BY policyname;
+-- Expected: exactly 4 rows, all named 'Library: ...'
+
+-- V10: election_portal_enabled defaults to false:
+SELECT id, election_portal_enabled FROM site_settings;
+-- Expected: election_portal_enabled = false (unless already updated by admin)
 
 */

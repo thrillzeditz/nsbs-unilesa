@@ -36,6 +36,7 @@ export default function PaymentsPage() {
 
   // Track States
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
+  const [trackSearchEmail, setTrackSearchEmail] = useState('');
   const [searchResults, setSearchResults] = useState<PaymentStatusRow[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -114,11 +115,17 @@ export default function PaymentsPage() {
 
   const handleTrackSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trackSearchQuery.trim()) return;
+    if (!trackSearchQuery.trim() || !trackSearchEmail.trim()) {
+      alert('Please enter both your matric number and the email address you used when submitting dues.');
+      return;
+    }
 
     setSearching(true);
     try {
-      const res = await getPaymentByMatric(trackSearchQuery.toUpperCase().trim());
+      const res = await getPaymentByMatric(
+        trackSearchQuery.toUpperCase().trim(),
+        trackSearchEmail.trim()
+      );
       setSearchResults(res);
       setHasSearched(true);
     } catch (err) {
@@ -443,10 +450,10 @@ export default function PaymentsPage() {
             </div>
 
             {/* Search Input Box */}
-            <form onSubmit={handleTrackSearch} className="space-y-2">
-              <label className="text-xs font-bold text-slate-600 uppercase">Search by Student Matric Number</label>
-              <div className="flex gap-3">
-                <div className="relative flex-grow">
+            <form onSubmit={handleTrackSearch} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-600 uppercase">Matric Number</label>
+                <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                     <Search className="h-4 w-4 text-slate-400" />
                   </div>
@@ -459,14 +466,32 @@ export default function PaymentsPage() {
                     className="block w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-sm uppercase"
                   />
                 </div>
-                <button
-                  type="submit"
-                  disabled={searching}
-                  className="px-6 py-3 bg-primary hover:bg-secondary text-white font-bold text-sm rounded-xl transition-premium shadow flex items-center gap-1.5 cursor-pointer disabled:bg-slate-300"
-                >
-                  {searching ? 'Searching...' : 'Track'}
-                </button>
               </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-600 uppercase">
+                  Email Address Used When Submitting Dues
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="tosin@unilesa.edu.ng"
+                  value={trackSearchEmail}
+                  onChange={(e) => setTrackSearchEmail(e.target.value)}
+                  className="block w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-sm"
+                />
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Enter the same email address you provided on the payment form. Both fields must match our records.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={searching}
+                className="w-full px-6 py-3 bg-primary hover:bg-secondary text-white font-bold text-sm rounded-xl transition-premium shadow flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-slate-300"
+              >
+                {searching ? 'Searching...' : 'Track My Payment'}
+              </button>
             </form>
 
             {/* Search Results Display */}

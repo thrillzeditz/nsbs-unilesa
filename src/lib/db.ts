@@ -422,14 +422,25 @@ export async function toggleElectionVoterEligibility(id: string, isEligible: boo
 // ==========================================
 
 /**
- * Check if a matriculation number has already voted/accredited in this election.
+ * Check if a matriculation number has already voted in this election.
  * Enforces Electoral Body Exemption checks.
+ *
+ * NOTE: The check_voter_accreditation RPC was removed from the database
+ * because it allowed anon callers to enumerate which students had voted
+ * by iterating known matric numbers.  Duplicate-vote protection is
+ * fully enforced server-side in submit_election_ballot (pre-check +
+ * PK constraint + unique_violation handler).
+ *
+ * For anon voters (the common case) this function always returns
+ * { accredited: false } — the voter_accreditations table is RLS-locked
+ * to admin roles and the direct query returns 0 rows for anon.  The
+ * true guard is the server-side rejection message after ballot submission.
  */
 export async function checkVoterAccreditationStatus(
   electionId: string,
   matricNumber: string
 ): Promise<{ accredited: boolean; referenceCode?: string; isExempt?: boolean; error?: string }> {
-  // Client-side security enforcer: reject exempted voters immediately
+  // Client-side exemption check (server enforces this too).
   if (isElectoralBodyExempt(matricNumber)) {
     return { accredited: false, isExempt: true, error: EXEMPTION_MESSAGE };
   }
@@ -437,29 +448,18 @@ export async function checkVoterAccreditationStatus(
   const db = getClient();
   const normalizedMatric = normalizeMatric(matricNumber);
 
-  // Primary path: SECURITY DEFINER RPC — works for anon voters.
-  // After migration, voter_accreditations is RLS-locked to admins only.
-  // The check_voter_accreditation() function bypasses RLS safely and
-  // returns only a boolean (no bulk enumeration possible).
-  const { data, error } = await db.rpc('check_voter_accreditation', {
-    p_election_id: electionId,
-    p_matric: normalizedMatric
-  });
-
-  if (!error && data !== null) {
-    return { accredited: data.accredited === true };
-  }
-
-  // Fallback: direct table query (works only in authenticated admin contexts
-  // or pre-migration environments where RLS is not yet applied).
-  const { data: direct } = await db
+  // Direct table query. For anon voters RLS blocks this and returns 0
+  // rows (accredited: false). For authenticated admins the row is
+  // returned if it exists. No RPC is used — the enumeration-risk
+  // check_voter_accreditation function has been removed.
+  const { data } = await db
     .from('voter_accreditations')
     .select('reference_code')
     .eq('election_id', electionId)
     .eq('matric_number', normalizedMatric)
     .maybeSingle();
 
-  return { accredited: !!direct, referenceCode: direct?.reference_code };
+  return { accredited: !!data, referenceCode: data?.reference_code };
 }
 
 /**
@@ -686,46 +686,42 @@ export async function verifyPayment(id: string, status: 'Approved' | 'Rejected')
 }
 
 /**
- * Public payment status lookup — calls the SECURITY DEFINER RPC
- * `lookup_payment_status`, which replaces the old `payment_status_view`.
+ * Public payment status lookup (two-factor: matric + email).
  *
- * Security model:
- *  - The RPC runs as the function owner (bypasses RLS on payment_records).
- *  - Returns only: matric_number, level, academic_session, due_item,
- *    amount_paid, payment_status, created_at — NO name, email, or phone.
- *  - Filtered to the single matric supplied — bulk enumeration is impossible.
- *  - Callable by anon (students checking their own payment status).
+ * Calls the SECURITY DEFINER RPC lookup_payment_status(p_matric, p_email).
+ * Both arguments are required.  A matric number alone is shared knowledge
+ * (classmates, lecturers) and must not be treated as proof of identity.
+ * Requiring the email address used during payment submission provides a
+ * second factor: only the submitting student is likely to know the exact
+ * email they typed.  The server returns 0 rows if either field does not
+ * match — it cannot be used to guess email addresses.
  *
- * Fallback: if the RPC does not exist yet (pre-migration environment),
- * attempts a direct table query (succeeds only for authenticated admins).
+ * Returns: non-PII columns only (no name, phone). Callable by anon.
+ *
+ * Fallback: direct table query for authenticated admin contexts or
+ * pre-migration environments (returns 0 rows for anon via RLS).
  */
-export async function getPaymentByMatric(matric: string): Promise<Pick<PaymentRecord, 'matric_number' | 'level' | 'academic_session' | 'due_item' | 'amount_paid' | 'payment_status' | 'created_at'>[]> {
+export async function getPaymentByMatric(
+  matric: string,
+  email: string
+): Promise<Pick<PaymentRecord, 'matric_number' | 'level' | 'academic_session' | 'due_item' | 'amount_paid' | 'payment_status' | 'created_at'>[]> {
   const db = getClient();
 
   const { data, error } = await db.rpc('lookup_payment_status', {
-    p_matric: matric.trim()
+    p_matric: matric.trim(),
+    p_email:  email.trim()
   });
 
   if (!error) {
     return (data || []) as PaymentRecord[];
   }
 
-  // Fallback: pre-migration or admin context — try the old view first,
-  // then the raw table. Both will return 0 rows for anon users post-migration.
-  const { data: viewData, error: viewErr } = await db
-    .from('payment_status_view')
-    .select('matric_number, level, academic_session, due_item, amount_paid, payment_status, created_at')
-    .ilike('matric_number', matric.trim())
-    .order('created_at', { ascending: false });
-
-  if (!viewErr) {
-    return (viewData || []) as PaymentRecord[];
-  }
-
+  // Fallback: pre-migration or admin context.
   const { data: fallback } = await db
     .from('payment_records')
     .select('matric_number, level, academic_session, due_item, amount_paid, payment_status, created_at')
     .ilike('matric_number', matric.trim())
+    .ilike('email', email.trim())
     .order('created_at', { ascending: false });
 
   return (fallback || []) as PaymentRecord[];
@@ -751,7 +747,18 @@ export async function getPaymentByMatricAdmin(matric: string): Promise<PaymentRe
 // ==========================================
 export async function getStaffAccounts(): Promise<StaffAccount[]> {
   const db = getClient();
-  // Deliberately exclude the password column to prevent exposure.
+
+  // Primary: SECURITY DEFINER RPC — password column is structurally absent
+  // from the function's return type.  Even if table-level grants are later
+  // altered, this function can never return the password column.
+  const { data: rpcData, error: rpcError } = await db.rpc('get_staff_accounts');
+  if (!rpcError) {
+    return (rpcData || []) as StaffAccount[];
+  }
+
+  // Fallback: direct table query with explicit column selection (no password).
+  // Works in pre-migration environments where the RPC does not yet exist.
+  // The db.ts-level explicit column list is the third layer of protection.
   const { data, error } = await db
     .from('staff_accounts')
     .select('id, name, email, created_at')

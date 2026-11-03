@@ -1756,7 +1756,7 @@ export default function AdminDashboard() {
                           onChange={(e) => handleFileChange(e, false)}
                           accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls"
                         />
-                        <BookOpen className="w-8 h-8 text-slate-450 mx-auto mb-2 animate-pulse" />
+                        <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                         <p className="text-xs font-bold text-slate-700">Drag & Drop Handout File here</p>
                         <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wider font-semibold">or click to browse local folders</p>
                       </div>
@@ -1975,7 +1975,7 @@ export default function AdminDashboard() {
                           onChange={(e) => handleFileChange(e, true)}
                           accept=".pdf"
                         />
-                        <FileText className="w-8 h-8 text-slate-450 mx-auto mb-2 animate-pulse" />
+                        <FileText className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                         <p className="text-xs font-bold text-slate-700">Drag & Drop Question Sheet here</p>
                         <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wider font-semibold">or click to browse PDF files</p>
                       </div>

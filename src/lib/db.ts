@@ -1,18 +1,22 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from './client';
 import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount, ElectionCollationSummary, ElectionAuditLog, ElectionVoter } from './types';
 import { isElectoralBodyExempt, EXEMPTION_MESSAGE, normalizeMatric } from './electionSecurity';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-export const supabase: SupabaseClient | null = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
+/**
+ * Returns the shared browser Supabase client singleton.
+ *
+ * This ensures only ONE GoTrueClient instance exists per browser context,
+ * preventing session desyncs and the "Multiple GoTrueClient instances"
+ * warning. All database and storage operations in this file use the same
+ * authenticated session as the login/dashboard auth layer.
+ */
 function getClient(): SupabaseClient {
-  if (!supabase) {
-    throw new Error('Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.');
-  }
-  return supabase;
+  return getSupabaseClient();
 }
+
+/** @deprecated Use getClient() — kept only for external imports that read `supabase` directly. */
+export const supabase: SupabaseClient = getSupabaseClient();
 
 // ==========================================
 // Site Settings
@@ -371,7 +375,7 @@ export async function addElectionVoter(voter: Omit<ElectionVoter, 'id' | 'create
 }
 
 export async function batchAddElectionVoters(
-  electionId: string, 
+  electionId: string,
   voters: { matric_number: string; full_name?: string; level?: string; department?: string; is_eligible?: boolean }[]
 ): Promise<number> {
   const db = getClient();
@@ -509,7 +513,7 @@ export async function submitElectionBallotRPC(
  */
 export async function getElectionResultsRPC(electionId: string): Promise<ElectionCollationSummary | null> {
   const db = getClient();
-  
+
   // Try calling the SQL RPC procedure first
   try {
     const { data, error } = await db.rpc('get_election_results', {
@@ -666,13 +670,13 @@ export async function getPaymentRecords(): Promise<PaymentRecord[]> {
   return data as PaymentRecord[];
 }
 
-export async function addPaymentRecord(record: Omit<PaymentRecord, 'id' | 'payment_status' | 'created_at' | 'updated_at'>): Promise<PaymentRecord> {
+export async function addPaymentRecord(
+  record: Omit<PaymentRecord, 'id' | 'payment_status' | 'created_at' | 'updated_at'>
+): Promise<void> {
   const db = getClient();
-  const { data, error } = await db.from('payment_records')
-    .insert({ ...record, payment_status: 'Pending Verification' })
-    .select().single();
+  const { error } = await db.from('payment_records')
+    .insert({ ...record, payment_status: 'Pending Verification' });
   if (error) throw new Error(`Failed to add payment record: ${error.message}`);
-  return data as PaymentRecord;
 }
 
 export async function verifyPayment(id: string, status: 'Approved' | 'Rejected'): Promise<PaymentRecord> {
@@ -709,7 +713,7 @@ export async function getPaymentByMatric(
 
   const { data, error } = await db.rpc('lookup_payment_status', {
     p_matric: matric.trim(),
-    p_email:  email.trim()
+    p_email: email.trim()
   });
 
   if (!error) {
@@ -796,19 +800,19 @@ export async function deleteStaffAccount(id: string): Promise<boolean> {
 // ==========================================
 export async function uploadFile(file: File, bucket: string, path: string): Promise<string> {
   const db = getClient();
-  
+
   // Clean path to prevent double slashes or leading slashes
   const cleanPath = path.replace(/^\/+/, '');
-  
+
   const { data, error } = await db.storage.from(bucket).upload(cleanPath, file, {
     cacheControl: '3600',
     upsert: true
   });
-  
+
   if (error) {
     throw new Error(`Failed to upload file to storage: ${error.message}`);
   }
-  
+
   const { data: publicUrlData } = db.storage.from(bucket).getPublicUrl(data.path);
   return publicUrlData.publicUrl;
 }

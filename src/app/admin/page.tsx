@@ -199,7 +199,7 @@ export default function AdminLogin() {
 
           {/* Header */}
           <div className="text-center space-y-2">
-            <div className="inline-flex p-3.5 rounded-full bg-secondary/15 border border-secondary/35 text-secondary">
+            <div className="inline-flex p-3.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-emerald-400">
               <Shield className="w-8 h-8" />
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
@@ -215,7 +215,7 @@ export default function AdminLogin() {
             {/* Email */}
             <div className="space-y-1.5">
               <label htmlFor="admin-email" className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                Email or Username
+                Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -226,10 +226,10 @@ export default function AdminLogin() {
                   type="text"
                   required
                   autoComplete="email"
-                  placeholder="gbiriemmanueltemidayo@gmail.com or admin"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
+                  className="block w-full pl-10 pr-3.5 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-xs text-white caret-white"
                 />
               </div>
             </div>
@@ -248,7 +248,7 @@ export default function AdminLogin() {
                     setForgotSuccess(null);
                     setForgotError(null);
                   }}
-                  className="text-[10px] text-secondary hover:underline cursor-pointer font-semibold"
+                  className="text-[10px] text-emerald-400 hover:text-amber-400 transition-colors cursor-pointer font-bold"
                 >
                   Forgot Password?
                 </button>
@@ -265,7 +265,7 @@ export default function AdminLogin() {
                   placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
+                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-xs text-white caret-white"
                 />
                 <button
                   type="button"
@@ -290,7 +290,7 @@ export default function AdminLogin() {
               id="admin-login-submit"
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow-md shadow-secondary/20 transition-premium cursor-pointer disabled:bg-slate-800 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-950/40 hover:shadow-amber-950/40 transition-all duration-300 ease-in-out cursor-pointer disabled:bg-slate-800 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900"
             >
               {loading ? (
                 <>
@@ -316,7 +316,7 @@ export default function AdminLogin() {
           <div className="glass-dark rounded-3xl p-6 sm:p-7 max-w-md w-full border border-white/10 shadow-2xl text-white space-y-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h4 className="font-extrabold text-sm flex items-center gap-2 text-white">
-                <HelpCircle className="w-4 h-4 text-secondary" /> Reset Administrator Password
+                <HelpCircle className="w-4 h-4 text-emerald-400" /> Reset Administrator Password
               </h4>
               <button
                 type="button"
@@ -328,7 +328,7 @@ export default function AdminLogin() {
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Enter your verified administrator email address below. We will send a secure password reset link to your email inbox.
+              Enter your administrator email address below. We will send a secure password reset link to your email inbox.
             </p>
 
             <form onSubmit={handleForgotPassword} className="space-y-4">
@@ -343,10 +343,10 @@ export default function AdminLogin() {
                   <input
                     type="text"
                     required
-                    placeholder="gbiriemmanueltemidayo@gmail.com"
+                    placeholder="Enter your email"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
-                    className="block w-full pl-10 pr-3.5 py-2.5 border border-white/10 rounded-xl bg-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50"
+                    className="block w-full pl-10 pr-3.5 py-2.5 border border-white/10 rounded-xl bg-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
                   />
                 </div>
               </div>
@@ -376,7 +376,7 @@ export default function AdminLogin() {
                 <button
                   type="submit"
                   disabled={forgotLoading}
-                  className="w-1/2 py-2.5 bg-secondary hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow transition-colors cursor-pointer disabled:bg-slate-700 flex items-center justify-center gap-1.5"
+                  className="w-1/2 py-2.5 bg-emerald-600 hover:bg-amber-500 text-white text-xs font-extrabold rounded-xl shadow-md transition-all duration-300 ease-in-out cursor-pointer disabled:bg-slate-700 flex items-center justify-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 >
                   {forgotLoading ? (
                     <>

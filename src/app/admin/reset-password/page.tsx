@@ -111,7 +111,7 @@ export default function ResetPasswordPage() {
 
         <div className="glass-dark rounded-3xl p-7 sm:p-8 border border-white/10 shadow-2xl text-white space-y-6">
           <div className="text-center space-y-2">
-            <div className="inline-flex p-3.5 rounded-full bg-secondary/15 border border-secondary/35 text-secondary">
+            <div className="inline-flex p-3.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-emerald-400">
               <Shield className="w-8 h-8" />
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
@@ -137,10 +137,10 @@ export default function ResetPasswordPage() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="new-password"
-                  placeholder="At least 8 characters"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
+                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-xs text-white caret-white"
                 />
                 <button
                   type="button"
@@ -167,10 +167,10 @@ export default function ResetPasswordPage() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="new-password"
-                  placeholder="Repeat new password"
+                  placeholder="Confirm your password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
+                  className="block w-full pl-10 pr-10 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-xs text-white caret-white"
                 />
               </div>
             </div>
@@ -194,7 +194,7 @@ export default function ResetPasswordPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow-md shadow-secondary/20 transition-premium cursor-pointer disabled:bg-slate-800 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-950/40 hover:shadow-amber-950/40 transition-all duration-300 ease-in-out cursor-pointer disabled:bg-slate-800 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900"
             >
               {loading ? (
                 <>

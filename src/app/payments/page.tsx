@@ -363,7 +363,7 @@ export default function PaymentsPage() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-3 bg-secondary hover:bg-emerald-600 text-white font-extrabold rounded-xl shadow-md transition-premium mt-4 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold rounded-xl shadow-md transition-premium mt-4 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {submitting ? (
                       <>

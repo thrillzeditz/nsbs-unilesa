@@ -347,7 +347,7 @@ export default function ElectionPortal() {
           <div className="pt-2">
             <button
               onClick={() => setCurrentStep('verify')}
-              className="w-full py-4 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-lg hover:shadow-emerald-500/20 transition-premium flex items-center justify-center gap-2 cursor-pointer group"
+              className="w-full py-4 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-lg hover:shadow-emerald-500/20 transition-premium flex items-center justify-center gap-2 cursor-pointer group"
             >
               <span>Proceed to Vote</span>
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -513,7 +513,7 @@ export default function ElectionPortal() {
             </button>
             <button
               onClick={() => setCurrentStep('voting')}
-              className="sm:w-2/3 py-3.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
+              className="sm:w-2/3 py-3.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
             >
               <span>Yes, Continue to Voting</span>
               <ArrowRight className="w-4 h-4" />
@@ -744,7 +744,7 @@ export default function ElectionPortal() {
             </button>
             <button
               onClick={handleProceedToReview}
-              className="sm:w-2/3 py-4 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
+              className="sm:w-2/3 py-4 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
             >
               <span>Proceed to Review Votes</span>
               <ArrowRight className="w-4 h-4" />
@@ -852,7 +852,7 @@ export default function ElectionPortal() {
             </button>
             <button
               onClick={() => setShowConfirmModal(true)}
-              className="sm:w-2/3 py-4 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
+              className="sm:w-2/3 py-4 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-md hover:shadow-emerald-500/20 transition-premium cursor-pointer flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-5 h-5" />
               <span>Continue to Confirmation</span>
@@ -901,7 +901,7 @@ export default function ElectionPortal() {
                 type="button"
                 disabled={isSubmitting}
                 onClick={handleConfirmSubmit}
-                className="w-1/2 py-3 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-slate-400"
+                className="w-1/2 py-3 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1.5 cursor-pointer disabled:bg-slate-400"
               >
                 {isSubmitting ? (
                   <>

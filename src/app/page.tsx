@@ -196,7 +196,7 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <Link 
               href="/library" 
-              className="w-full sm:w-auto px-8 py-4 bg-secondary hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-secondary/35 transition-premium flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-4 bg-emerald-600 hover:bg-amber-500 text-white font-bold rounded-full shadow-lg shadow-secondary/35 transition-premium flex items-center justify-center gap-2"
             >
               Explore Library <BookOpen className="w-5 h-5" />
             </Link>

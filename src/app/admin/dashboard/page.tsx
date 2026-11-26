@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -1109,7 +1109,7 @@ export default function AdminDashboard() {
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-600"></div>
       </div>
     );
   }
@@ -1129,7 +1129,7 @@ export default function AdminDashboard() {
 
           {/* Brand Logo */}
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-secondary/15 border border-secondary/35 text-secondary">
+            <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500">
               <Shield className="w-6 h-6 animate-pulse" />
             </div>
             <div>
@@ -1159,7 +1159,7 @@ export default function AdminDashboard() {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-premium ${active
-                      ? 'bg-secondary text-white shadow-md'
+                      ? 'bg-emerald-600 text-white shadow-md'
                       : 'hover:bg-white/5 hover:text-white'
                     }`}
                 >
@@ -1194,7 +1194,7 @@ export default function AdminDashboard() {
         {/* Workspace Header */}
         <header className="bg-white border-b border-slate-200 py-4.5 px-6 sm:px-8 flex items-center justify-between shadow-sm">
           <h2 className="font-extrabold text-slate-800 text-base sm:text-lg tracking-tight uppercase flex items-center gap-1.5">
-            <Sparkles className="w-5 h-5 text-secondary" /> {role === 'super_admin' ? 'Visual CMS Dashboard' : 'Staff Learning CMS'}
+            <Sparkles className="w-5 h-5 text-emerald-500" /> {role === 'super_admin' ? 'Visual CMS Dashboard' : 'Staff Learning CMS'}
           </h2>
 
           <div className="flex items-center gap-3">
@@ -1225,7 +1225,7 @@ export default function AdminDashboard() {
                 <div className="absolute inset-0 opacity-5 bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:14px_24px]" />
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-secondary bg-secondary/15 px-3 py-1 rounded-full border border-secondary/35">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500 bg-emerald-500/15 px-3 py-1 rounded-full border border-emerald-500/35">
                       {role === 'super_admin' ? 'Super Administrator Access' : 'Departmental Staff Access'}
                     </span>
                     <h3 className="font-extrabold text-2xl tracking-tight text-white mt-3.5">
@@ -1240,7 +1240,7 @@ export default function AdminDashboard() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setActiveTab('library')}
-                      className="px-4 py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow-md transition-premium flex items-center gap-1.5 cursor-pointer"
+                      className="px-4 py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow-md transition-premium flex items-center gap-1.5 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" /> Upload Documents
                     </button>
@@ -1334,7 +1334,7 @@ export default function AdminDashboard() {
 
                           <button
                             onClick={() => setActiveTab('events')}
-                            className="px-4 py-2 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                            className="px-4 py-2 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
                           >
                             <Vote className="w-4 h-4" /> View Full Election Audit
                           </button>
@@ -1432,7 +1432,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                     {/* Course Resources */}
                     <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
-                      <div className="p-4 bg-emerald-50 text-secondary rounded-xl border border-emerald-100">
+                      <div className="p-4 bg-emerald-50 text-emerald-500 rounded-xl border border-emerald-100">
                         <BookOpen className="w-6 h-6" />
                       </div>
                       <div>
@@ -1467,7 +1467,7 @@ export default function AdminDashboard() {
                   {/* Quick Guide */}
                   <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                     <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Info className="w-4.5 h-4.5 text-secondary animate-bounce" /> Lecturer Quick Uploading Instructions
+                      <Info className="w-4.5 h-4.5 text-emerald-500 animate-bounce" /> Lecturer Quick Uploading Instructions
                     </h4>
                     <ul className="text-slate-600 text-xs space-y-3.5 pl-2 leading-relaxed list-disc">
                       <li>Use the <strong>Manage Library</strong> tab in the sidebar to upload files directly into the Academic Library and Past Questions folders.</li>
@@ -1495,7 +1495,7 @@ export default function AdminDashboard() {
                 {/* 1. General Config & Bank details */}
                 <form onSubmit={handleSettingsSave} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                    <Landmark className="w-4.5 h-4.5 text-secondary" /> Dues Price & Bank transfer Details
+                    <Landmark className="w-4.5 h-4.5 text-emerald-500" /> Dues Price & Bank transfer Details
                   </h4>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -1551,7 +1551,7 @@ export default function AdminDashboard() {
                   </div>
 
                   <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 pt-2 flex items-center gap-1.5">
-                    <Sparkles className="w-4.5 h-4.5 text-secondary" /> Hero Section Content
+                    <Sparkles className="w-4.5 h-4.5 text-emerald-500" /> Hero Section Content
                   </h4>
 
                   <div className="space-y-1">
@@ -1607,7 +1607,7 @@ export default function AdminDashboard() {
 
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-primary hover:bg-secondary text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
                   >
                     Save Site settings
                   </button>
@@ -1619,7 +1619,7 @@ export default function AdminDashboard() {
                   {/* Mission / Vision Statement editor */}
                   <form onSubmit={handleSettingsSave} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                     <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                      <Info className="w-4.5 h-4.5 text-secondary" /> Mission & Vision Statements
+                      <Info className="w-4.5 h-4.5 text-emerald-500" /> Mission & Vision Statements
                     </h4>
 
                     <div className="space-y-1">
@@ -1656,7 +1656,7 @@ export default function AdminDashboard() {
 
                     <button
                       type="submit"
-                      className="px-5 py-2.5 bg-primary hover:bg-secondary text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
                     >
                       Save Statements
                     </button>
@@ -1665,7 +1665,7 @@ export default function AdminDashboard() {
                   {/* Social links editor */}
                   <form onSubmit={handleSocialsSave} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                     <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                      <Users className="w-4.5 h-4.5 text-secondary" /> Social Media Updates Channels
+                      <Users className="w-4.5 h-4.5 text-emerald-500" /> Social Media Updates Channels
                     </h4>
 
 
@@ -1716,7 +1716,7 @@ export default function AdminDashboard() {
 
                     <button
                       type="submit"
-                      className="px-5 py-2.5 bg-primary hover:bg-secondary text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium cursor-pointer"
                     >
                       Save Social Links
                     </button>
@@ -1738,7 +1738,7 @@ export default function AdminDashboard() {
                 {/* 1. Upload Library Material form */}
                 <form onSubmit={handleLibUpload} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                    <BookOpen className="w-4.5 h-4.5 text-secondary" /> Upload Library Resource Material
+                    <BookOpen className="w-4.5 h-4.5 text-emerald-500" /> Upload Library Resource Material
                   </h4>
 
                   {/* Drag-and-Drop Uploader for Library */}
@@ -1747,7 +1747,7 @@ export default function AdminDashboard() {
                     {libFile ? (
                       <div className="p-4 bg-emerald-55/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-2">
-                          <FileText className="w-5.5 h-5.5 text-secondary shrink-0" />
+                          <FileText className="w-5.5 h-5.5 text-emerald-500 shrink-0" />
                           <div className="min-w-0">
                             <p className="font-extrabold text-slate-800 truncate max-w-[200px]" title={libFile.name}>
                               {libFile.name}
@@ -1770,7 +1770,7 @@ export default function AdminDashboard() {
                         onDragOver={handleDrag}
                         onDragLeave={handleDrag}
                         onDrop={(e) => handleDrop(e, false)}
-                        className="border-2 border-dashed border-slate-200 hover:border-secondary rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-premium"
+                        className="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-premium"
                         onClick={() => document.getElementById('lib-file-input')?.click()}
                       >
                         <input
@@ -1831,7 +1831,7 @@ export default function AdminDashboard() {
                               {existingCourses.map(code => (
                                 <option key={code} value={code}>{code}</option>
                               ))}
-                              <option value="__new__" className="text-secondary font-bold">+ Create New Course</option>
+                              <option value="__new__" className="text-emerald-500 font-bold">+ Create New Course</option>
                             </select>
                           ) : (
                             <div className="flex gap-1.5">
@@ -1940,14 +1940,14 @@ export default function AdminDashboard() {
                         <span>{libProgress}%</span>
                       </div>
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-secondary transition-all duration-150" style={{ width: `${libProgress}%` }} />
+                        <div className="h-full bg-emerald-600 transition-all duration-150" style={{ width: `${libProgress}%` }} />
                       </div>
                     </div>
                   ) : (
                     <button
                       type="submit"
                       disabled={!libFile}
-                      className="w-full py-2.5 bg-secondary hover:bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" /> Upload Learning Material
                     </button>
@@ -2043,7 +2043,7 @@ export default function AdminDashboard() {
                               {existingCourses.map(code => (
                                 <option key={code} value={code}>{code}</option>
                               ))}
-                              <option value="__new__" className="text-secondary font-bold">+ Create New Course</option>
+                              <option value="__new__" className="text-emerald-500 font-bold">+ Create New Course</option>
                             </select>
                           ) : (
                             <div className="flex gap-1.5">
@@ -2164,7 +2164,7 @@ export default function AdminDashboard() {
                       {library.map(lib => (
                         <tr key={lib.id} className="hover:bg-slate-50">
                           <td className="py-3 font-semibold text-slate-800">{lib.title}</td>
-                          <td className="py-3 uppercase font-bold text-secondary">{lib.course_code}</td>
+                          <td className="py-3 uppercase font-bold text-emerald-500">{lib.course_code}</td>
                           <td className="py-3">
                             {lib.level === 'misc' ? (
                               <span className="font-semibold text-slate-500">Miscellaneous</span>
@@ -2266,7 +2266,7 @@ export default function AdminDashboard() {
                                 <div className="flex justify-end gap-1.5">
                                   <button
                                     onClick={() => handleVerifyPayment(pay.id, 'Approved')}
-                                    className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-sm transition-premium cursor-pointer"
+                                    className="p-1.5 bg-emerald-600 hover:bg-amber-500 text-white rounded-lg shadow-sm transition-premium cursor-pointer"
                                     title="Approve Payment"
                                   >
                                     <Check className="w-3.5 h-3.5" />
@@ -2391,7 +2391,7 @@ export default function AdminDashboard() {
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" /> {newsPublishNow ? 'Publish Article' : 'Save Draft'}
                   </button>
@@ -2405,7 +2405,7 @@ export default function AdminDashboard() {
                     {news.map(art => (
                       <div key={art.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-250 flex items-center justify-between gap-4">
                         <div className="space-y-1">
-                          <span className="text-[9px] font-bold text-secondary uppercase tracking-wider">{art.category}</span>
+                          <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider">{art.category}</span>
                           {art.is_published === false && (
                             <span className="ml-2 text-[9px] font-bold text-amber-600 uppercase tracking-wider">Draft</span>
                           )}
@@ -2608,7 +2608,7 @@ export default function AdminDashboard() {
                             id="election-portal-enable-btn"
                             disabled={electionToggleSaving}
                             onClick={() => handleElectionPortalToggle(true)}
-                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-premium flex items-center gap-2 cursor-pointer"
+                            className="px-6 py-3 bg-emerald-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-xl shadow-lg transition-premium flex items-center gap-2 cursor-pointer"
                           >
                             {electionToggleSaving ? (
                               <><div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white" /><span>Saving...</span></>
@@ -2690,7 +2690,7 @@ export default function AdminDashboard() {
                       <select
                         value={selectedDashboardElectionId}
                         onChange={(e) => setSelectedDashboardElectionId(e.target.value)}
-                        className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-secondary cursor-pointer"
+                        className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                       >
                         <option value="demo">Safe Demo Presentation (Baseline 2026)</option>
                         {elections.map(el => (
@@ -2722,7 +2722,7 @@ export default function AdminDashboard() {
                         </button>
                         <button
                           onClick={() => handleExportVotes('json')}
-                          className="px-3 py-2 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl transition-premium flex items-center gap-1 cursor-pointer shadow-sm"
+                          className="px-3 py-2 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl transition-premium flex items-center gap-1 cursor-pointer shadow-sm"
                           title="Export Certified Collation JSON"
                         >
                           <FileText className="w-3.5 h-3.5" /> Export JSON
@@ -2773,7 +2773,7 @@ export default function AdminDashboard() {
                         <span className="text-xl sm:text-2xl font-black text-primary">{pct}%</span>
                         <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1 overflow-hidden">
                           <div
-                            className="bg-secondary h-full rounded-full transition-all duration-700"
+                            className="bg-emerald-600 h-full rounded-full transition-all duration-700"
                             style={{ width: `${Math.min(100, pct)}%` }}
                           />
                         </div>
@@ -2799,7 +2799,7 @@ export default function AdminDashboard() {
 
                 {/* Privacy Architecture Notice */}
                 <div className="bg-slate-900 text-white p-4.5 rounded-2xl flex items-start gap-3 text-xs">
-                  <Shield className="w-5 h-5 text-secondary shrink-0 mt-0.5" />
+                  <Shield className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
                     <span className="font-extrabold text-slate-200 text-xs uppercase tracking-wide">
                       Privacy & Audit Separation Guarantee:
@@ -2814,7 +2814,7 @@ export default function AdminDashboard() {
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                      <BarChart3 className="w-4.5 h-4.5 text-secondary" />
+                      <BarChart3 className="w-4.5 h-4.5 text-emerald-500" />
                       {selectedDashboardElectionId === 'demo' ? 'Live Candidate Tallies (Demo Presentation - 7 Offices)' : 'Official Candidate Tallies by Office'}
                     </h4>
                     <span className="text-[10px] text-slate-400 font-bold uppercase">
@@ -2860,7 +2860,7 @@ export default function AdminDashboard() {
                                     </div>
                                     <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
                                       <div
-                                        className="bg-secondary h-full rounded-full transition-all duration-700"
+                                        className="bg-emerald-600 h-full rounded-full transition-all duration-700"
                                         style={{ width: `${percentage}%` }}
                                       />
                                     </div>
@@ -2917,7 +2917,7 @@ export default function AdminDashboard() {
                                         </div>
                                         <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
                                           <div
-                                            className="bg-secondary h-full rounded-full transition-all duration-700"
+                                            className="bg-emerald-600 h-full rounded-full transition-all duration-700"
                                             style={{ width: `${cand.percentage}%` }}
                                           />
                                         </div>
@@ -2940,7 +2940,7 @@ export default function AdminDashboard() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                          <Users className="w-4 h-4 text-secondary" /> Accredited Student Roster & Eligibility ({electionVotersList.length} Students)
+                          <Users className="w-4 h-4 text-emerald-500" /> Accredited Student Roster & Eligibility ({electionVotersList.length} Students)
                         </h4>
                         <p className="text-[11px] text-slate-500">
                           Manage registered eligible matric numbers for this specific election. Shows participation status with zero ballot leakage.
@@ -2950,7 +2950,7 @@ export default function AdminDashboard() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setShowBatchModal(true)}
-                          className="px-3 py-1.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl transition-premium flex items-center gap-1 cursor-pointer"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl transition-premium flex items-center gap-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" /> Batch Import Roster
                         </button>
@@ -2994,7 +2994,7 @@ export default function AdminDashboard() {
                       <div>
                         <button
                           type="submit"
-                          className="w-full py-2 bg-primary hover:bg-slate-800 text-white font-extrabold text-xs rounded-lg transition-premium flex items-center justify-center gap-1 cursor-pointer"
+                          className="w-full py-2 bg-emerald-700 hover:bg-slate-800 text-white font-extrabold text-xs rounded-lg transition-premium flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" /> Register Voter
                         </button>
@@ -3167,7 +3167,7 @@ export default function AdminDashboard() {
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" /> Create Event Card
                   </button>
@@ -3235,7 +3235,7 @@ export default function AdminDashboard() {
 
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" /> Create Election Board
                     </button>
@@ -3341,7 +3341,7 @@ export default function AdminDashboard() {
                               key={elect.id}
                               onClick={() => setSelectedElectionId(elect.id)}
                               className={`p-4 rounded-2xl border transition-premium cursor-pointer ${isSelected
-                                  ? 'bg-slate-50 border-secondary'
+                                  ? 'bg-slate-50 border-emerald-500'
                                   : 'bg-white border-slate-200 hover:border-slate-350'
                                 }`}
                             >
@@ -3362,7 +3362,7 @@ export default function AdminDashboard() {
                                   {elect.status !== 'open' && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleElectionStatus(elect.id, 'open'); }}
-                                      className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[9px] rounded-lg transition-premium cursor-pointer"
+                                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-amber-500 text-white font-bold text-[9px] rounded-lg transition-premium cursor-pointer"
                                     >
                                       Open Polls
                                     </button>
@@ -3408,7 +3408,7 @@ export default function AdminDashboard() {
                         </div>
                         <button
                           onClick={() => handleExportVotes('json')}
-                          className="px-3 py-1.5 bg-secondary hover:bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow transition-premium flex items-center gap-1 cursor-pointer"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-amber-500 text-white font-bold text-[10px] rounded-lg shadow transition-premium flex items-center gap-1 cursor-pointer"
                           title="Export Tally Sheets"
                         >
                           <Download className="w-3.5 h-3.5" /> Export Results
@@ -3471,7 +3471,7 @@ export default function AdminDashboard() {
                 {/* Create Staff Form */}
                 <form onSubmit={handleCreateStaff} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                    <Users className="w-4.5 h-4.5 text-secondary" /> Register New Staff Account
+                    <Users className="w-4.5 h-4.5 text-emerald-500" /> Register New Staff Account
                   </h4>
 
                   <div className="space-y-1">
@@ -3517,7 +3517,7 @@ export default function AdminDashboard() {
 
                   <button
                     type="submit"
-                    className="w-full py-2.5 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" /> Create Staff Credentials
                   </button>
@@ -3599,7 +3599,7 @@ export default function AdminDashboard() {
           <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                <Users className="w-4 h-4 text-secondary" /> Batch Import Student Matric Numbers
+                <Users className="w-4 h-4 text-emerald-500" /> Batch Import Student Matric Numbers
               </h4>
               <button
                 onClick={() => setShowBatchModal(false)}
@@ -3633,7 +3633,7 @@ export default function AdminDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-amber-500 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1"
                 >
                   <Plus className="w-4 h-4" /> Import Roster
                 </button>

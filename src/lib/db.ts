@@ -765,9 +765,17 @@ export async function getStaffAccounts(): Promise<StaffAccount[]> {
   // The db.ts-level explicit column list is the third layer of protection.
   const { data, error } = await db
     .from('staff_accounts')
-    .select('id, name, email, created_at')
+    .select('id, name, email, role, is_active, created_at')
     .order('created_at', { ascending: false });
-  if (error) throw new Error(`Failed to fetch staff accounts: ${error.message}`);
+  if (error) {
+    // If role / is_active columns do not exist yet in an unmigrated database, fallback to core columns
+    const { data: fallbackData, error: fallbackError } = await db
+      .from('staff_accounts')
+      .select('id, name, email, created_at')
+      .order('created_at', { ascending: false });
+    if (fallbackError) throw new Error(`Failed to fetch staff accounts: ${fallbackError.message}`);
+    return (fallbackData || []).map(sa => ({ ...sa, role: 'staff', is_active: true })) as StaffAccount[];
+  }
   return data as StaffAccount[];
 }
 
@@ -776,16 +784,42 @@ export async function addStaffAccount(account: Omit<StaffAccount, 'id' | 'create
   const normalizedAccount = {
     name: account.name,
     email: account.email.trim().toLowerCase(),
+    role: account.role || 'staff',
+    is_active: account.is_active !== false,
     // Only include password if provided (legacy field; authentication uses admin_roles)
     ...(account.password ? { password: account.password } : {})
   };
   const { data, error } = await db
     .from('staff_accounts')
     .insert(normalizedAccount)
-    .select('id, name, email, created_at')
+    .select('id, name, email, role, is_active, created_at')
     .single();
-  if (error) throw new Error(`Failed to add staff account: ${error.message}`);
+  if (error) {
+    // Fallback if role or is_active are not yet migrated columns
+    const fallbackInsert = {
+      name: account.name,
+      email: account.email.trim().toLowerCase(),
+      ...(account.password ? { password: account.password } : {})
+    };
+    const { data: fallbackData, error: fallbackErr } = await db
+      .from('staff_accounts')
+      .insert(fallbackInsert)
+      .select('id, name, email, created_at')
+      .single();
+    if (fallbackErr) throw new Error(`Failed to add staff account: ${fallbackErr.message}`);
+    return { ...fallbackData, role: 'staff', is_active: true } as StaffAccount;
+  }
   return data as StaffAccount;
+}
+
+export async function updateStaffAccountStatus(id: string, is_active: boolean): Promise<boolean> {
+  const db = getClient();
+  const { error } = await db
+    .from('staff_accounts')
+    .update({ is_active })
+    .eq('id', id);
+  if (error) throw new Error(`Failed to update staff status: ${error.message}`);
+  return true;
 }
 
 export async function deleteStaffAccount(id: string): Promise<boolean> {

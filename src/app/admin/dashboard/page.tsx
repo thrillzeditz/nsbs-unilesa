@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Shield, Landmark, BookOpen, CreditCard, Newspaper, Calendar, MessageSquare, 
-  Users, BarChart3, LogOut, Check, X, Plus, Trash2, Edit3, Settings, 
-  Download, FileText, Vote, Sparkles, User, Mail, Info, Clock, RefreshCw 
+import {
+  Shield, Landmark, BookOpen, CreditCard, Newspaper, Calendar, MessageSquare,
+  Users, BarChart3, LogOut, Check, X, Plus, Trash2, Edit3, Settings,
+  Download, FileText, Vote, Sparkles, User, Mail, Info, Clock, RefreshCw,
+  UserCheck, UserX
 } from 'lucide-react';
-import { 
+import {
   getSettings, updateSettings, getSocialLinks, updateSocialLink,
   getLibraryResources, addLibraryResource, deleteLibraryResource,
   getPastQuestions, addPastQuestion, deletePastQuestion,
@@ -17,19 +18,19 @@ import {
   getElections, addElection, updateElectionStatus, deleteElection,
   getCandidates, addCandidate, deleteCandidate,
   getVotes, getPaymentRecords, verifyPayment,
-  getStaffAccounts, addStaffAccount, deleteStaffAccount,
+  getStaffAccounts, addStaffAccount, updateStaffAccountStatus, deleteStaffAccount,
   uploadFile,
   getElectionResultsRPC, getElectionVoters, addElectionVoter,
   batchAddElectionVoters, deleteElectionVoter, toggleElectionVoterEligibility
 } from '@/lib/db';
-import { 
-  SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, 
+import {
+  SiteSettings, SocialMediaLink, LibraryResource, PastQuestion,
   NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote as VoteType, PaymentRecord, StaffAccount,
   ElectionCollationSummary, ElectionVoter
 } from '@/lib/types';
-import { 
+import {
   getDemoElectionStats, resetDemoElectionState, MOCK_POSITIONS,
-  DemoElectionStats 
+  DemoElectionStats
 } from '@/lib/electionDemoData';
 import { createClient } from '@/lib/client';
 
@@ -41,12 +42,12 @@ const DEFAULT_COURSE_FOLDERS: Record<string, Record<string, string[]>> = {
   },
   '200': {
     'First': [
-      'ENT 211', 'BCH 201', 'STA 203', 'UNILESA-BIO 201', 
+      'ENT 211', 'BCH 201', 'STA 203', 'UNILESA-BIO 201',
       'UNILESA-CHM 291', 'UNILESA-MCS 291', 'UNILESA-BIO 203', 'UNILESA-GSE 297'
     ],
     'Second': [
-      'GST 212', 'BCH 202', 'UNILESA-BIO 294', 'UNILESA-CHM 290', 
-      'UNILESA-CHM 292', 'UNILESA-BCH 294', 'UNILESA-BCH 296', 
+      'GST 212', 'BCH 202', 'UNILESA-BIO 294', 'UNILESA-CHM 290',
+      'UNILESA-CHM 292', 'UNILESA-BCH 294', 'UNILESA-BCH 296',
       'UNILESA-BCH 298', 'UNILESA-BIO 292', 'UNILESA-GSE 298'
     ]
   },
@@ -72,6 +73,7 @@ export default function AdminDashboard() {
   // Staff registration inputs
   const [staffNameInput, setStaffNameInput] = useState('');
   const [staffEmailInput, setStaffEmailInput] = useState('');
+  const [staffRoleInput, setStaffRoleInput] = useState<'staff' | 'course_rep' | 'electoral_committee'>('staff');
 
   // Premium file uploader states
   const [libFile, setLibFile] = useState<File | null>(null);
@@ -162,12 +164,20 @@ export default function AdminDashboard() {
       // If no row exists the user is not an admin — deny access.
       const { data: adminRow, error: adminError } = await supabase
         .from('admin_roles')
-        .select('role, email')
+        .select('role, email, is_active')
         .eq('user_id', user.id)
         .maybeSingle();
 
       if (adminError || !adminRow) {
         console.warn('[Auth] Authenticated user has no admin_roles row:', user.email);
+        await supabase.auth.signOut();
+        router.replace('/admin');
+        return;
+      }
+
+      if (adminRow.is_active === false) {
+        console.warn('[Auth] Administrator account is deactivated:', user.email);
+        alert('Your administrative account has been deactivated. Please contact the system administrator.');
         await supabase.auth.signOut();
         router.replace('/admin');
         return;
@@ -208,7 +218,7 @@ export default function AdminDashboard() {
   // Automated cleanup for mistakenly added BCH 201 in 100 Level
   useEffect(() => {
     if (!authorized) return;
-    
+
     const cleanupMistakenResource = async () => {
       try {
         const badLib = library.find(r => r.course_code.trim().toUpperCase() === 'BCH 201' && r.level === '100' && r.semester === 'First');
@@ -216,7 +226,7 @@ export default function AdminDashboard() {
           await deleteLibraryResource(badLib.id);
           triggerRefresh();
         }
-        
+
         const badPq = pastQs.find(q => q.course_code.trim().toUpperCase() === 'BCH 201' && q.level === '100' && q.semester === 'First');
         if (badPq) {
           await deletePastQuestion(badPq.id);
@@ -331,10 +341,10 @@ export default function AdminDashboard() {
     e.preventDefault();
     try {
       await updateSettings(editSettings);
-      
+
       // Notify Header & Footer components to live-update layout settings
       window.dispatchEvent(new Event('settingsUpdated'));
-      
+
       alert("Portal settings updated successfully!");
       triggerRefresh();
     } catch (err) {
@@ -362,7 +372,7 @@ export default function AdminDashboard() {
     try {
       const ig = socials.find(s => s.platform === 'instagram');
       const tk = socials.find(s => s.platform === 'tiktok');
-      
+
       if (ig) await updateSocialLink(ig.id, igUrl, igUser);
       if (tk) await updateSocialLink(tk.id, tkUrl, tkUser);
 
@@ -395,17 +405,17 @@ export default function AdminDashboard() {
   const getExistingCourseCodes = (level: string, semester: string) => {
     if (level === 'misc') return [];
     const staticCodes = DEFAULT_COURSE_FOLDERS[level]?.[semester] || [];
-    
+
     // Dynamic codes from library materials
     const libCodes = library
       .filter(r => r.level === level && r.semester === semester)
       .map(r => r.course_code.trim().toUpperCase());
-      
+
     // Dynamic codes from past questions
     const pqCodes = pastQs
       .filter(q => q.level === level && q.semester === semester)
       .map(q => q.course_code.trim().toUpperCase());
-      
+
     const allUnique = Array.from(new Set([...staticCodes, ...libCodes, ...pqCodes]));
     return allUnique.filter(Boolean).sort();
   };
@@ -453,7 +463,7 @@ export default function AdminDashboard() {
       const ext = file.name.split('.').pop()?.toUpperCase() || 'PDF';
       const lastDot = file.name.lastIndexOf('.');
       const cleanName = lastDot !== -1 ? file.name.substring(0, lastDot) : file.name;
-      
+
       if (isPq) {
         setPqFile(file);
         setPqTitle(cleanName);
@@ -473,7 +483,7 @@ export default function AdminDashboard() {
       const ext = file.name.split('.').pop()?.toUpperCase() || 'PDF';
       const lastDot = file.name.lastIndexOf('.');
       const cleanName = lastDot !== -1 ? file.name.substring(0, lastDot) : file.name;
-      
+
       if (isPq) {
         setPqFile(file);
         setPqTitle(cleanName);
@@ -496,15 +506,32 @@ export default function AdminDashboard() {
       // Supabase Auth + the admin_roles table.
       await addStaffAccount({
         name: staffNameInput,
-        email: staffEmailInput
+        email: staffEmailInput,
+        role: staffRoleInput,
+        is_active: true,
       });
-      alert(`Staff record created for ${staffNameInput}. Grant login access via Supabase Auth + admin_roles.`);
+      alert(`Staff record created for ${staffNameInput} (${staffRoleInput}). Grant login access via Supabase Auth + admin_roles.`);
       setStaffNameInput('');
       setStaffEmailInput('');
+      setStaffRoleInput('staff');
       triggerRefresh();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to create staff account.");
+      alert(`Failed to create staff account: ${err.message || err}`);
+    }
+  };
+
+  const handleToggleStaffStatus = async (id: string, currentStatus: boolean | undefined) => {
+    const nextStatus = currentStatus === false ? true : false;
+    const actionLabel = nextStatus ? 'activate' : 'deactivate';
+    if (!confirm(`Are you sure you want to ${actionLabel} this staff account?`)) return;
+    try {
+      await updateStaffAccountStatus(id, nextStatus);
+      alert(`Staff account ${actionLabel}d successfully!`);
+      triggerRefresh();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to ${actionLabel} staff account: ${err.message || err}`);
     }
   };
 
@@ -546,9 +573,9 @@ export default function AdminDashboard() {
       const fileExt = libFile.name.split('.').pop();
       const sanitizedName = libFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
       const storagePath = `resources/${Date.now()}_${sanitizedName}`;
-      
+
       const fileUrl = await uploadFile(libFile, 'Library', storagePath);
-      
+
       clearInterval(interval);
       setLibProgress(95);
 
@@ -606,9 +633,9 @@ export default function AdminDashboard() {
       const fileExt = pqFile.name.split('.').pop();
       const sanitizedName = pqFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
       const storagePath = `past-questions/${Date.now()}_${sanitizedName}`;
-      
+
       const fileUrl = await uploadFile(pqFile, 'Library', storagePath);
-      
+
       clearInterval(interval);
       setPqProgress(95);
 
@@ -783,10 +810,10 @@ export default function AdminDashboard() {
 
   const handleElectionStatus = async (id: string, status: 'upcoming' | 'open' | 'closed') => {
     await updateElectionStatus(id, status);
-    
+
     // Notify e-voting pages to refresh
     window.dispatchEvent(new Event('electionsUpdated'));
-    
+
     alert(`Election is now: ${status.toUpperCase()}`);
     triggerRefresh();
   };
@@ -983,7 +1010,7 @@ export default function AdminDashboard() {
   const handleExportVotes = (format: 'json' | 'csv' = 'json') => {
     const isDemo = selectedDashboardElectionId === 'demo';
     const elect = isDemo ? null : elections.find(e => e.id === (selectedDashboardElectionId || selectedElectionId));
-    
+
     const title = isDemo ? 'NSBS ELECTION 2026 (Demo)' : (electionCollation?.election_title || elect?.title || 'NSBS E-Voting');
     const status = isDemo ? demoStats.status : (electionCollation?.status || elect?.status || 'open');
     const regVoters = isDemo ? demoStats.registered_voters : (electionCollation?.registered_voters || 0);
@@ -1095,11 +1122,11 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      
+
       {/* 1. SIDEBAR NAVIGATION */}
       <aside className="w-full md:w-64 bg-slate-900 text-white shrink-0 flex flex-col justify-between p-6 md:min-h-screen">
         <div className="space-y-8">
-          
+
           {/* Brand Logo */}
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-secondary/15 border border-secondary/35 text-secondary">
@@ -1131,11 +1158,10 @@ export default function AdminDashboard() {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-premium ${
-                    active 
-                      ? 'bg-secondary text-white shadow-md' 
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-premium ${active
+                      ? 'bg-secondary text-white shadow-md'
                       : 'hover:bg-white/5 hover:text-white'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center gap-3">
                     <Icon className="w-4.5 h-4.5" /> {item.label}
@@ -1164,13 +1190,13 @@ export default function AdminDashboard() {
 
       {/* 2. MAIN WORKSPACE CONTENT */}
       <main className="flex-grow flex flex-col min-h-screen">
-        
+
         {/* Workspace Header */}
         <header className="bg-white border-b border-slate-200 py-4.5 px-6 sm:px-8 flex items-center justify-between shadow-sm">
           <h2 className="font-extrabold text-slate-800 text-base sm:text-lg tracking-tight uppercase flex items-center gap-1.5">
             <Sparkles className="w-5 h-5 text-secondary" /> {role === 'super_admin' ? 'Visual CMS Dashboard' : 'Staff Learning CMS'}
           </h2>
-          
+
           <div className="flex items-center gap-3">
             <div className="hidden sm:block text-right">
               <p className="text-xs font-extrabold text-slate-800">{userName}</p>
@@ -1187,7 +1213,7 @@ export default function AdminDashboard() {
 
         {/* Tab Panel Render Grid */}
         <div className="flex-grow p-6 sm:p-8 max-w-6xl w-full mx-auto space-y-6">
-          
+
           {/* ========================================== */}
           {/* PANEL 1: ANALYTICS */}
           {/* ========================================== */}
@@ -1228,7 +1254,7 @@ export default function AdminDashboard() {
 
                   {/* KPI Cards Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    
+
                     {/* Collected Dues */}
                     <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
                       <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
@@ -1292,11 +1318,10 @@ export default function AdminDashboard() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
-                              <span className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
-                                status === 'open' ? 'text-emerald-400 bg-emerald-950 border-emerald-500/30' :
-                                status === 'closed' ? 'text-slate-300 bg-slate-800 border-slate-700' :
-                                'text-amber-400 bg-amber-950 border-amber-500/30'
-                              }`}>
+                              <span className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${status === 'open' ? 'text-emerald-400 bg-emerald-950 border-emerald-500/30' :
+                                  status === 'closed' ? 'text-slate-300 bg-slate-800 border-slate-700' :
+                                    'text-amber-400 bg-amber-950 border-amber-500/30'
+                                }`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${status === 'open' ? 'bg-emerald-400 animate-ping' : status === 'closed' ? 'bg-slate-400' : 'bg-amber-400'}`} />
                                 {status === 'open' ? 'LIVE RESULTS' : status === 'closed' ? 'FINAL CERTIFIED RESULTS' : 'UPCOMING DRAFT'}
                               </span>
@@ -1306,7 +1331,7 @@ export default function AdminDashboard() {
                               Departmental Online Election Real-time Statistics
                             </h4>
                           </div>
-                          
+
                           <button
                             onClick={() => setActiveTab('events')}
                             className="px-4 py-2 bg-secondary hover:bg-emerald-600 text-white font-extrabold text-xs rounded-xl shadow transition-premium flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
@@ -1386,10 +1411,9 @@ export default function AdminDashboard() {
                                 <td className="py-3">{pay.level}L ({pay.academic_session})</td>
                                 <td className="py-3">{new Date(pay.created_at).toLocaleDateString()}</td>
                                 <td className="py-3">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    pay.payment_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                                    pay.payment_status === 'Rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
-                                  }`}>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${pay.payment_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                                      pay.payment_status === 'Rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                                    }`}>
                                     {pay.payment_status}
                                   </span>
                                 </td>
@@ -1467,7 +1491,7 @@ export default function AdminDashboard() {
               <h3 className="font-extrabold text-slate-800 text-lg">Edit Website Content Blocks</h3>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
+
                 {/* 1. General Config & Bank details */}
                 <form onSubmit={handleSettingsSave} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
@@ -1591,7 +1615,7 @@ export default function AdminDashboard() {
 
                 {/* 2. Statements & Social links */}
                 <div className="space-y-6">
-                  
+
                   {/* Mission / Vision Statement editor */}
                   <form onSubmit={handleSettingsSave} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                     <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
@@ -1710,7 +1734,7 @@ export default function AdminDashboard() {
           {activeTab === 'library' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
+
                 {/* 1. Upload Library Material form */}
                 <form onSubmit={handleLibUpload} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
@@ -1733,8 +1757,8 @@ export default function AdminDashboard() {
                             </p>
                           </div>
                         </div>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => { setLibFile(null); setLibTitle(''); }}
                           className="text-slate-450 hover:text-rose-500 text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 hover:bg-rose-50 rounded-lg transition-premium cursor-pointer"
                         >
@@ -1742,17 +1766,17 @@ export default function AdminDashboard() {
                         </button>
                       </div>
                     ) : (
-                      <div 
+                      <div
                         onDragOver={handleDrag}
                         onDragLeave={handleDrag}
                         onDrop={(e) => handleDrop(e, false)}
                         className="border-2 border-dashed border-slate-200 hover:border-secondary rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-premium"
                         onClick={() => document.getElementById('lib-file-input')?.click()}
                       >
-                        <input 
+                        <input
                           id="lib-file-input"
-                          type="file" 
-                          className="hidden" 
+                          type="file"
+                          className="hidden"
                           onChange={(e) => handleFileChange(e, false)}
                           accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls"
                         />
@@ -1952,8 +1976,8 @@ export default function AdminDashboard() {
                             </p>
                           </div>
                         </div>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => { setPqFile(null); setPqTitle(''); }}
                           className="text-slate-450 hover:text-rose-500 text-[10px] font-extrabold uppercase tracking-wider px-2 py-1 hover:bg-rose-50 rounded-lg transition-premium cursor-pointer"
                         >
@@ -1961,17 +1985,17 @@ export default function AdminDashboard() {
                         </button>
                       </div>
                     ) : (
-                      <div 
+                      <div
                         onDragOver={handleDrag}
                         onDragLeave={handleDrag}
                         onDrop={(e) => handleDrop(e, true)}
                         className="border-2 border-dashed border-slate-200 hover:border-accent rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-premium"
                         onClick={() => document.getElementById('pq-file-input')?.click()}
                       >
-                        <input 
+                        <input
                           id="pq-file-input"
-                          type="file" 
-                          className="hidden" 
+                          type="file"
+                          className="hidden"
                           onChange={(e) => handleFileChange(e, true)}
                           accept=".pdf"
                         />
@@ -2123,7 +2147,7 @@ export default function AdminDashboard() {
               {/* Resource List Table */}
               <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                 <h4 className="font-extrabold text-slate-800 text-sm">Library Files Catalog ({library.length + pastQs.length} items)</h4>
-                
+
                 <div className="max-h-[350px] overflow-y-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
@@ -2231,10 +2255,9 @@ export default function AdminDashboard() {
                             <td className="py-4">{pay.level}L &bull; {pay.academic_session}</td>
                             <td className="py-4 font-bold text-slate-800">N{pay.amount_paid.toLocaleString()}</td>
                             <td className="py-4">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                pay.payment_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                                pay.payment_status === 'Rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${pay.payment_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                                  pay.payment_status === 'Rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
                                 {pay.payment_status}
                               </span>
                             </td>
@@ -2277,7 +2300,7 @@ export default function AdminDashboard() {
           {activeTab === 'news' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
+
                 {/* News creation form */}
                 <form onSubmit={handleAddNews} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2">
@@ -2377,7 +2400,7 @@ export default function AdminDashboard() {
                 {/* News Table List */}
                 <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm">Articles ({news.length})</h4>
-                  
+
                   <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
                     {news.map(art => (
                       <div key={art.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-250 flex items-center justify-between gap-4">
@@ -2447,9 +2470,8 @@ export default function AdminDashboard() {
                               <p className="text-[9px] text-slate-400 mt-0.5">Date: {new Date(comm.created_at).toLocaleString()}</p>
                             </td>
                             <td className="py-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                comm.is_approved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${comm.is_approved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
                                 {comm.is_approved ? 'Approved' : 'Pending Mod'}
                               </span>
                             </td>
@@ -2495,18 +2517,15 @@ export default function AdminDashboard() {
               {role === 'super_admin' && (() => {
                 const portalEnabled = settings?.election_portal_enabled === true;
                 return (
-                  <div className={`rounded-3xl border-2 shadow-lg overflow-hidden transition-all duration-500 ${
-                    portalEnabled
+                  <div className={`rounded-3xl border-2 shadow-lg overflow-hidden transition-all duration-500 ${portalEnabled
                       ? 'border-emerald-400 bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950'
                       : 'border-slate-700 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950'
-                  }`}>
-                    {/* Top Bar */}
-                    <div className={`px-6 py-2 flex items-center gap-2 border-b ${
-                      portalEnabled ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'
                     }`}>
-                      <span className={`w-2 h-2 rounded-full ${
-                        portalEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                      }`} />
+                    {/* Top Bar */}
+                    <div className={`px-6 py-2 flex items-center gap-2 border-b ${portalEnabled ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'
+                      }`}>
+                      <span className={`w-2 h-2 rounded-full ${portalEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                        }`} />
                       <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-300">
                         {portalEnabled ? 'ELECTION PORTAL — LIVE & ACCEPTING VOTES' : 'ELECTION PORTAL — CLOSED'}
                       </span>
@@ -2517,11 +2536,10 @@ export default function AdminDashboard() {
                     <div className="p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       <div className="space-y-2 text-white">
                         <div className="flex items-center gap-3">
-                          <div className={`p-2.5 rounded-xl border ${
-                            portalEnabled
+                          <div className={`p-2.5 rounded-xl border ${portalEnabled
                               ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'
                               : 'bg-white/5 border-white/10 text-slate-400'
-                          }`}>
+                            }`}>
                             <Vote className="w-5 h-5" />
                           </div>
                           <div>
@@ -2539,9 +2557,8 @@ export default function AdminDashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                           <div className="bg-white/5 border border-white/10 p-3 rounded-xl">
                             <span className="text-[9px] font-bold text-slate-400 uppercase block">Portal Status</span>
-                            <span className={`text-sm font-extrabold block mt-0.5 ${
-                              portalEnabled ? 'text-emerald-300' : 'text-slate-400'
-                            }`}>
+                            <span className={`text-sm font-extrabold block mt-0.5 ${portalEnabled ? 'text-emerald-300' : 'text-slate-400'
+                              }`}>
                               {portalEnabled ? 'Voting Open' : 'Voting Closed'}
                             </span>
                           </div>
@@ -2561,11 +2578,10 @@ export default function AdminDashboard() {
 
                         {/* Status message */}
                         {electionToggleMsg && (
-                          <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border ${
-                            electionToggleMsg.type === 'success'
+                          <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border ${electionToggleMsg.type === 'success'
                               ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
                               : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
-                          }`}>
+                            }`}>
                             {electionToggleMsg.type === 'success' ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                             {electionToggleMsg.text}
                           </div>
@@ -2623,30 +2639,28 @@ export default function AdminDashboard() {
                   </div>
                 );
               })()}
-              
+
               {/* ========================================================================= */}
               {/* NSBS ELECTION STATISTICS & ACCREDITED COLLATION PANEL */}
               {/* ========================================================================= */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-                
+
                 {/* Header with Election Selector and Export Actions */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-5">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
-                        selectedDashboardElectionId === 'demo'
+                      <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${selectedDashboardElectionId === 'demo'
                           ? 'text-emerald-700 bg-emerald-100 border-emerald-300'
                           : (electionCollation?.status === 'open'
-                              ? 'text-emerald-700 bg-emerald-100 border-emerald-300'
-                              : electionCollation?.status === 'closed'
-                                ? 'text-slate-800 bg-slate-200 border-slate-300'
-                                : 'text-amber-800 bg-amber-100 border-amber-300')
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          (selectedDashboardElectionId === 'demo' || electionCollation?.status === 'open')
+                            ? 'text-emerald-700 bg-emerald-100 border-emerald-300'
+                            : electionCollation?.status === 'closed'
+                              ? 'text-slate-800 bg-slate-200 border-slate-300'
+                              : 'text-amber-800 bg-amber-100 border-amber-300')
+                        }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${(selectedDashboardElectionId === 'demo' || electionCollation?.status === 'open')
                             ? 'bg-emerald-600 animate-pulse'
                             : 'bg-slate-600'
-                        }`} />
+                          }`} />
                         {selectedDashboardElectionId === 'demo'
                           ? 'DEMO PRESENTATION AUDIT'
                           : electionCollation?.status === 'open'
@@ -2758,9 +2772,9 @@ export default function AdminDashboard() {
                         <span className="text-[10px] font-bold text-slate-400 uppercase block">Turnout Rate</span>
                         <span className="text-xl sm:text-2xl font-black text-primary">{pct}%</span>
                         <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1 overflow-hidden">
-                          <div 
-                            className="bg-secondary h-full rounded-full transition-all duration-700" 
-                            style={{ width: `${Math.min(100, pct)}%` }} 
+                          <div
+                            className="bg-secondary h-full rounded-full transition-all duration-700"
+                            style={{ width: `${Math.min(100, pct)}%` }}
                           />
                         </div>
                       </div>
@@ -2768,12 +2782,10 @@ export default function AdminDashboard() {
                       <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs flex flex-col justify-between">
                         <span className="text-[10px] font-bold text-slate-400 uppercase block">Election Status</span>
                         <div className="flex items-center gap-1.5 pt-0.5">
-                          <span className={`w-2.5 h-2.5 rounded-full ${
-                            stat === 'open' ? 'bg-emerald-500 animate-ping' : stat === 'closed' ? 'bg-slate-600' : 'bg-amber-500'
-                          }`} />
-                          <span className={`text-xs font-extrabold uppercase ${
-                            stat === 'open' ? 'text-emerald-800' : stat === 'closed' ? 'text-slate-800' : 'text-amber-800'
-                          }`}>
+                          <span className={`w-2.5 h-2.5 rounded-full ${stat === 'open' ? 'bg-emerald-500 animate-ping' : stat === 'closed' ? 'bg-slate-600' : 'bg-amber-500'
+                            }`} />
+                          <span className={`text-xs font-extrabold uppercase ${stat === 'open' ? 'text-emerald-800' : stat === 'closed' ? 'text-slate-800' : 'text-amber-800'
+                            }`}>
                             {stat === 'open' ? 'Voting Open' : stat === 'closed' ? 'Polls Closed' : 'Draft Upcoming'}
                           </span>
                         </div>
@@ -2802,7 +2814,7 @@ export default function AdminDashboard() {
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                      <BarChart3 className="w-4.5 h-4.5 text-secondary" /> 
+                      <BarChart3 className="w-4.5 h-4.5 text-secondary" />
                       {selectedDashboardElectionId === 'demo' ? 'Live Candidate Tallies (Demo Presentation - 7 Offices)' : 'Official Candidate Tallies by Office'}
                     </h4>
                     <span className="text-[10px] text-slate-400 font-bold uppercase">
@@ -2847,7 +2859,7 @@ export default function AdminDashboard() {
                                       <span className="font-extrabold text-slate-900">{voteCount} votes ({percentage}%)</span>
                                     </div>
                                     <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
-                                      <div 
+                                      <div
                                         className="bg-secondary h-full rounded-full transition-all duration-700"
                                         style={{ width: `${percentage}%` }}
                                       />
@@ -2904,7 +2916,7 @@ export default function AdminDashboard() {
                                           </span>
                                         </div>
                                         <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
-                                          <div 
+                                          <div
                                             className="bg-secondary h-full rounded-full transition-all duration-700"
                                             style={{ width: `${cand.percentage}%` }}
                                           />
@@ -3025,8 +3037,8 @@ export default function AdminDashboard() {
                             </tr>
                           ) : (
                             electionVotersList
-                              .filter(v => 
-                                v.matric_number.toLowerCase().includes(voterFilter.toLowerCase()) || 
+                              .filter(v =>
+                                v.matric_number.toLowerCase().includes(voterFilter.toLowerCase()) ||
                                 (v.full_name && v.full_name.toLowerCase().includes(voterFilter.toLowerCase()))
                               )
                               .map(v => (
@@ -3037,9 +3049,8 @@ export default function AdminDashboard() {
                                   <td className="py-2.5 px-3">
                                     <button
                                       onClick={() => handleToggleEligibility(v.id, v.is_eligible)}
-                                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
-                                        v.is_eligible ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                      }`}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${v.is_eligible ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                        }`}
                                       title="Click to toggle eligibility"
                                     >
                                       {v.is_eligible ? 'Eligible' : 'Ineligible'}
@@ -3078,7 +3089,7 @@ export default function AdminDashboard() {
 
               {/* Event Creation Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
+
                 {/* Event Creation Form */}
                 <form onSubmit={handleAddEvent} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2">
@@ -3165,7 +3176,7 @@ export default function AdminDashboard() {
                 {/* Events list */}
                 <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm">Active Event Schedules ({events.length})</h4>
-                  
+
                   <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                     {events.map(ev => (
                       <div key={ev.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-250 flex items-center justify-between gap-4">
@@ -3189,16 +3200,16 @@ export default function AdminDashboard() {
 
               {/* Elections and E-Voting Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6 border-t border-slate-200">
-                
+
                 {/* Left: Create Elections & Manage Candidates */}
                 <div className="space-y-6">
-                  
+
                   {/* Election Board Creator */}
                   <form onSubmit={handleAddElection} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                     <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2">
                       Create E-Voting Board
                     </h4>
-                    
+
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-500 uppercase">Election Title *</label>
                       <input
@@ -3326,27 +3337,25 @@ export default function AdminDashboard() {
                         {elections.map((elect) => {
                           const isSelected = selectedElectionId === elect.id;
                           return (
-                            <div 
-                              key={elect.id} 
+                            <div
+                              key={elect.id}
                               onClick={() => setSelectedElectionId(elect.id)}
-                              className={`p-4 rounded-2xl border transition-premium cursor-pointer ${
-                                isSelected 
-                                  ? 'bg-slate-50 border-secondary' 
+                              className={`p-4 rounded-2xl border transition-premium cursor-pointer ${isSelected
+                                  ? 'bg-slate-50 border-secondary'
                                   : 'bg-white border-slate-200 hover:border-slate-350'
-                              }`}
+                                }`}
                             >
                               <div className="flex justify-between items-center flex-wrap gap-2">
                                 <h5 className="font-extrabold text-slate-800 text-xs sm:text-sm">{elect.title}</h5>
-                                <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
-                                  elect.status === 'open' ? 'bg-emerald-100 text-emerald-800 animate-pulse' :
-                                  elect.status === 'closed' ? 'bg-slate-200 text-slate-800' : 'bg-amber-100 text-amber-800'
-                                }`}>
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${elect.status === 'open' ? 'bg-emerald-100 text-emerald-800 animate-pulse' :
+                                    elect.status === 'closed' ? 'bg-slate-200 text-slate-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
                                   {elect.status}
                                 </span>
                               </div>
 
                               <p className="text-[10px] text-slate-500 leading-normal mt-1">{elect.description}</p>
-                              
+
                               {/* Admin control buttons */}
                               <div className="flex items-center gap-2 pt-4 mt-3 border-t border-slate-150 justify-between">
                                 <div className="flex gap-1">
@@ -3456,15 +3465,15 @@ export default function AdminDashboard() {
           {activeTab === 'staff_mgmt' && role === 'super_admin' && (
             <div className="space-y-6">
               <h3 className="font-extrabold text-slate-800 text-lg">Staff Accounts Registry</h3>
-              
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
+
                 {/* Create Staff Form */}
                 <form onSubmit={handleCreateStaff} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
                     <Users className="w-4.5 h-4.5 text-secondary" /> Register New Staff Account
                   </h4>
-                  
+
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Staff Full Name *</label>
                     <input
@@ -3482,11 +3491,24 @@ export default function AdminDashboard() {
                     <input
                       type="email"
                       required
-                      placeholder="e.g. staff@nsbs.unilesa.edu.ng"
+                      placeholder="e.g. staff@gmail.com"
                       value={staffEmailInput}
                       onChange={(e) => setStaffEmailInput(e.target.value)}
                       className="block w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50"
                     />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Assigned Role *</label>
+                    <select
+                      value={staffRoleInput}
+                      onChange={(e) => setStaffRoleInput(e.target.value as any)}
+                      className="block w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 font-medium"
+                    >
+                      <option value="staff">General Staff (Editorial & Content Moderation)</option>
+                      <option value="course_rep">Course Representative (Library & Past Questions)</option>
+                      <option value="electoral_committee">Electoral Committee (Elections & Accreditation)</option>
+                    </select>
                   </div>
 
                   <p className="text-[10px] text-slate-500">
@@ -3504,30 +3526,61 @@ export default function AdminDashboard() {
                 {/* Staff List */}
                 <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
                   <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
-                    <Users className="w-4.5 h-4.5 text-slate-500" /> Active Staff Accounts ({staffList.length})
+                    <Users className="w-4.5 h-4.5 text-slate-500" /> Registered Staff Accounts ({staffList.length})
                   </h4>
-                  
+
                   <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
                     {staffList.length === 0 ? (
                       <div className="py-10 text-center text-xs text-slate-400">No staff credentials registered.</div>
                     ) : (
-                      staffList.map(sa => (
-                        <div key={sa.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-4">
-                          <div className="space-y-1">
-                            <h5 className="font-bold text-slate-800 text-xs leading-tight">{sa.name}</h5>
-                            <p className="text-[10px] text-slate-505 font-semibold">{sa.email}</p>
-                            <p className="text-[9px] text-slate-400">Created: {new Date(sa.created_at).toLocaleDateString()}</p>
+                      staffList.map(sa => {
+                        const isActive = sa.is_active !== false;
+                        const roleLabel =
+                          sa.role === 'super_admin' ? 'Super Admin' :
+                            sa.role === 'electoral_committee' ? 'Electoral Committee' :
+                              sa.role === 'course_rep' ? 'Course Rep' : 'Staff';
+                        const roleColor =
+                          sa.role === 'super_admin' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                            sa.role === 'electoral_committee' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                              sa.role === 'course_rep' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                'bg-emerald-100 text-emerald-700 border-emerald-200';
+
+                        return (
+                          <div key={sa.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-4">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h5 className="font-bold text-slate-800 text-xs leading-tight">{sa.name}</h5>
+                                <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${roleColor}`}>
+                                  {roleLabel}
+                                </span>
+                                <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${isActive ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-200 text-slate-600 border-slate-300'}`}>
+                                  {isActive ? 'Active' : 'Inactive'}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-semibold">{sa.email}</p>
+                              <p className="text-[9px] text-slate-400">Created: {new Date(sa.created_at).toLocaleDateString()}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStaffStatus(sa.id, sa.is_active)}
+                                className={`p-1.5 rounded-lg transition-premium cursor-pointer ${isActive ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
+                                title={isActive ? 'Deactivate Staff' : 'Activate Staff'}
+                              >
+                                {isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteStaff(sa.id)}
+                                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-premium shrink-0 cursor-pointer"
+                                title="Delete Staff"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteStaff(sa.id)}
-                            className="p-1.5 text-rose-505 hover:bg-rose-50 rounded-lg transition-premium shrink-0 cursor-pointer"
-                            title="Delete Staff"
-                          >
-                            <Trash2 className="w-4.5 h-4.5" />
-                          </button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -3548,7 +3601,7 @@ export default function AdminDashboard() {
               <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
                 <Users className="w-4 h-4 text-secondary" /> Batch Import Student Matric Numbers
               </h4>
-              <button 
+              <button
                 onClick={() => setShowBatchModal(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >

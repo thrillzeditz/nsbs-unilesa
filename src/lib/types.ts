@@ -205,6 +205,8 @@ export interface StaffAccount {
   id: string;
   name: string;
   email: string;
+  role?: 'super_admin' | 'staff' | 'course_rep' | 'electoral_committee' | string;
+  is_active?: boolean;
   /**
    * @deprecated Never display or log this field. The staff_accounts table
    * stores a plain-text legacy field. Do not use for authentication —

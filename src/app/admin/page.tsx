@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Shield, Mail, Lock, Eye, EyeOff, AlertCircle,
-  ArrowLeft, KeyRound,
+  ArrowLeft, KeyRound, CheckCircle2, HelpCircle
 } from 'lucide-react';
 import { createClient } from '@/lib/client';
 import Link from 'next/link';
@@ -28,11 +28,18 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Forgot Password modal state
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+
   // If the user already has a valid Supabase session, send them straight
   // to the dashboard. The dashboard also verifies the session independently.
   // NOTE: getSession() is used here (not getClaims / getUser) because this
   // is a browser-only pre-flight check whose sole purpose is to skip the
-  // login form for users who are already signed in.  The dashboard performs
+  // login form for users who are already signed in. The dashboard performs
   // a full server-side auth.getUser() call before granting access.
   useEffect(() => {
     const checkSession = async () => {
@@ -60,11 +67,15 @@ export default function AdminLogin() {
       return;
     }
 
-    // Allow shorthand usernames (e.g. "admin" → "admin@nsbs.unilesa.edu.ng").
+    // Allow shorthand usernames (e.g. "admin" → "gbiriemmanueltemidayo@gmail.com").
     // This is purely a UX convenience; Supabase Auth still validates the
     // full email and password through its own secure backend.
     if (!rawEmail.includes('@')) {
-      rawEmail = `${rawEmail}@nsbs.unilesa.edu.ng`;
+      if (rawEmail === 'admin') {
+        rawEmail = 'gbiriemmanueltemidayo@gmail.com';
+      } else {
+        rawEmail = `${rawEmail}@nsbs.unilesa.edu.ng`;
+      }
     }
 
     setLoading(true);
@@ -121,6 +132,49 @@ export default function AdminLogin() {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let targetEmail = forgotEmail.trim().toLowerCase();
+
+    if (!targetEmail) {
+      setForgotError('Please enter your administrator email address.');
+      return;
+    }
+
+    if (!targetEmail.includes('@')) {
+      if (targetEmail === 'admin') {
+        targetEmail = 'gbiriemmanueltemidayo@gmail.com';
+      } else {
+        targetEmail = `${targetEmail}@nsbs.unilesa.edu.ng`;
+      }
+    }
+
+    setForgotLoading(true);
+    setForgotError(null);
+    setForgotSuccess(null);
+
+    try {
+      const supabase = createClient();
+      const redirectUrl = `${window.location.origin}/admin/reset-password`;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        setForgotError(error.message);
+      } else {
+        setForgotSuccess(
+          `Password reset instructions sent to ${targetEmail}. Please check your inbox and spam folder.`
+        );
+      }
+    } catch (err: any) {
+      setForgotError(err?.message || 'Failed to send password reset email.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   return (
     <div className="flex-grow flex items-center justify-center py-16 px-4 sm:px-6 lg:px-8 relative bg-slate-900 overflow-hidden">
 
@@ -172,7 +226,7 @@ export default function AdminLogin() {
                   type="text"
                   required
                   autoComplete="email"
-                  placeholder="admin@nsbs.unilesa.edu.ng or admin"
+                  placeholder="gbiriemmanueltemidayo@gmail.com or admin"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="block w-full pl-10 pr-3.5 py-3 border border-white/10 rounded-xl bg-slate-800/80 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-premium text-xs text-white caret-white"
@@ -182,9 +236,23 @@ export default function AdminLogin() {
 
             {/* Password */}
             <div className="space-y-1.5">
-              <label htmlFor="admin-password" className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                Password
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="admin-password" className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotEmail(email);
+                    setShowForgotModal(true);
+                    setForgotSuccess(null);
+                    setForgotError(null);
+                  }}
+                  className="text-[10px] text-secondary hover:underline cursor-pointer font-semibold"
+                >
+                  Forgot Password?
+                </button>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Lock className="h-4 w-4 text-slate-500" />
@@ -241,6 +309,89 @@ export default function AdminLogin() {
         </div>
 
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="glass-dark rounded-3xl p-6 sm:p-7 max-w-md w-full border border-white/10 shadow-2xl text-white space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h4 className="font-extrabold text-sm flex items-center gap-2 text-white">
+                <HelpCircle className="w-4 h-4 text-secondary" /> Reset Administrator Password
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="text-slate-400 hover:text-white text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Enter your verified administrator email address below. We will send a secure password reset link to your email inbox.
+            </p>
+
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                  Admin Email
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-4 w-4 text-slate-500" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="gbiriemmanueltemidayo@gmail.com"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="block w-full pl-10 pr-3.5 py-2.5 border border-white/10 rounded-xl bg-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-secondary/50"
+                  />
+                </div>
+              </div>
+
+              {forgotSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/35 rounded-xl text-[11px] text-emerald-300 flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>{forgotSuccess}</span>
+                </div>
+              )}
+
+              {forgotError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/35 rounded-xl text-[11px] text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{forgotError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={forgotLoading}
+                  className="w-1/2 py-2.5 bg-secondary hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow transition-colors cursor-pointer disabled:bg-slate-700 flex items-center justify-center gap-1.5"
+                >
+                  {forgotLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-white" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <span>Send Reset Link</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

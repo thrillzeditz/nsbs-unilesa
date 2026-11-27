@@ -6,7 +6,7 @@ import {
   Shield, Landmark, BookOpen, CreditCard, Newspaper, Calendar, MessageSquare,
   Users, BarChart3, LogOut, Check, X, Plus, Trash2, Edit3, Settings,
   Download, FileText, Vote, Sparkles, User, Mail, Info, Clock, RefreshCw,
-  UserCheck, UserX
+  UserCheck, UserX, Database
 } from 'lucide-react';
 import {
   getSettings, updateSettings, getSocialLinks, updateSocialLink,
@@ -33,6 +33,7 @@ import {
   DemoElectionStats
 } from '@/lib/electionDemoData';
 import { createClient } from '@/lib/client';
+import StudentRegistryTab from '@/components/StudentRegistryTab';
 
 
 const DEFAULT_COURSE_FOLDERS: Record<string, Record<string, string[]>> = {
@@ -60,7 +61,7 @@ const DEFAULT_COURSE_FOLDERS: Record<string, Record<string, string[]>> = {
 export default function AdminDashboard() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'settings' | 'library' | 'payments' | 'news' | 'comments' | 'events' | 'staff_mgmt'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'settings' | 'library' | 'payments' | 'news' | 'comments' | 'events' | 'staff_mgmt' | 'registry'>('analytics');
 
   // Role & profile states
   // 'super_admin' | 'staff' | 'course_rep' | 'electoral_committee'
@@ -1150,6 +1151,7 @@ export default function AdminDashboard() {
               { id: 'news', label: 'News Articles', icon: Newspaper, visible: role === 'super_admin' },
               { id: 'comments', label: 'Comment Mod', icon: MessageSquare, count: pendingCommentsCount, visible: role === 'super_admin' },
               { id: 'events', label: 'Events & Voting', icon: Calendar, visible: role === 'super_admin' },
+              { id: 'registry', label: 'Voter Registry', icon: Database, visible: role === 'super_admin' },
               { id: 'staff_mgmt', label: 'Manage Staff', icon: Users, visible: role === 'super_admin' },
             ].filter(item => item.visible).map(item => {
               const Icon = item.icon;
@@ -3461,6 +3463,20 @@ export default function AdminDashboard() {
 
           {/* ========================================== */}
           {/* PANEL 8: STAFF MANAGEMENT */}
+          {/* ========================================== */}
+          {/* PANEL: STUDENT VOTER REGISTRY              */}
+          {/* ========================================== */}
+          {activeTab === 'registry' && role === 'super_admin' && (
+            <div className="space-y-6">
+              <StudentRegistryTab
+                elections={elections}
+                isSuperAdmin={role === 'super_admin'}
+              />
+            </div>
+          )}
+
+          {/* ========================================== */}
+          {/* PANEL 7: STAFF MANAGEMENT                 */}
           {/* ========================================== */}
           {activeTab === 'staff_mgmt' && role === 'super_admin' && (
             <div className="space-y-6">

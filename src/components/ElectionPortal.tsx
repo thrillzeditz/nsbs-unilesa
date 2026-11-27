@@ -11,7 +11,8 @@ import {
   verifyStudentMatric, submitDemoVote, resetDemoElectionState
 } from '@/lib/electionDemoData';
 import { 
-  checkVoterAccreditationStatus, submitElectionBallotRPC, getElections, getSettings
+  checkVoterAccreditationStatus, submitElectionBallotRPC, getElections, getSettings,
+  verifyVoterForElection
 } from '@/lib/db';
 import { isElectoralBodyExempt, EXEMPTION_MESSAGE } from '@/lib/electionSecurity';
 
@@ -72,9 +73,10 @@ export default function ElectionPortal() {
       return;
     }
 
-    // If live election is connected, check live accreditation first
+    // If live election is connected, verify against the actual election roster
     if (activeElectionId) {
       try {
+        // 1. Check if already voted (accreditation table — anon RLS returns false for unvoted)
         const accCheck = await checkVoterAccreditationStatus(activeElectionId, value);
         if (accCheck.isExempt || accCheck.error === EXEMPTION_MESSAGE) {
           setVerificationError(EXEMPTION_MESSAGE);
@@ -90,8 +92,30 @@ export default function ElectionPortal() {
           setCurrentStep('already_voted');
           return;
         }
-      } catch (err) {
-        // Fall back to local check
+
+        // 2. Verify against the live election_voters roster (DB-backed, not MOCK_STUDENTS)
+        const rosterCheck = await verifyVoterForElection(activeElectionId, value);
+        if (rosterCheck.found) {
+          if (!rosterCheck.is_eligible) {
+            setVerificationError('Your student record has been marked ineligible to vote in this election.');
+            return;
+          }
+          setVerifiedStudent({
+            matric_number: value.toUpperCase(),
+            name: rosterCheck.name || 'Accredited Student',
+            level: 'Undergraduate',
+            department: 'Biochemistry'
+          });
+          setCurrentStep('verified_confirm');
+          return;
+        }
+
+        // Not found in live election roster — do not fall through to MOCK_STUDENTS
+        setVerificationError('Your matriculation number is not on the accredited voter roster for this election. Please contact the electoral committee.');
+        return;
+      } catch {
+        // Network/RPC failure — fall through to local demo check with a warning
+        console.warn('Live election verification failed; falling back to demo mode.');
       }
     }
 

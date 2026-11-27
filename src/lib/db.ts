@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from './client';
-import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount, ElectionCollationSummary, ElectionAuditLog, ElectionVoter } from './types';
+import { SiteSettings, SocialMediaLink, LibraryResource, PastQuestion, NewsArticle, Comment, ActivityEvent, Election, Candidate, Vote, PaymentRecord, StaffAccount, ElectionCollationSummary, ElectionAuditLog, ElectionVoter, StudentVoterRegistry, RegistryImportRow, RegistryImportResult } from './types';
 import { isElectoralBodyExempt, EXEMPTION_MESSAGE, normalizeMatric } from './electionSecurity';
 
 /**
@@ -827,6 +827,274 @@ export async function deleteStaffAccount(id: string): Promise<boolean> {
   const { error } = await db.from('staff_accounts').delete().eq('id', id);
   if (error) throw new Error(`Failed to delete staff account: ${error.message}`);
   return true;
+}
+
+// ==========================================
+// Student Voter Registry
+// ==========================================
+
+/**
+ * Fetch a page of registry records with optional name/matric search.
+ * Admin-only: requires an authenticated session with an admin_roles row.
+ */
+export async function searchStudentRegistry(
+  query: string = '',
+  page: number = 0,
+  limit: number = 50
+): Promise<{ data: StudentVoterRegistry[]; total: number }> {
+  const db = getClient();
+  const from = page * limit;
+  const to = from + limit - 1;
+
+  let req = db
+    .from('student_voter_registry')
+    .select('*', { count: 'exact' })
+    .order('full_name', { ascending: true })
+    .range(from, to);
+
+  if (query.trim()) {
+    const q = query.trim();
+    // Supabase OR filter: search both name and matric_norm
+    req = req.or(
+      `full_name.ilike.%${q}%,matric_number.ilike.%${q}%,matric_norm.ilike.%${q.toUpperCase().replace(/\s+/g, '')}%`
+    );
+  }
+
+  const { data, error, count } = await req;
+  if (error) throw new Error(`Failed to search registry: ${error.message}`);
+  return { data: (data || []) as StudentVoterRegistry[], total: count || 0 };
+}
+
+/**
+ * Get registry summary stats via SECURITY DEFINER RPC.
+ */
+export async function getRegistrySummary(): Promise<{ total: number; active: number }> {
+  const db = getClient();
+  const { data, error } = await db.rpc('get_registry_summary');
+  if (error || (data && data.error)) {
+    // Fallback: direct count
+    const { count } = await db
+      .from('student_voter_registry')
+      .select('*', { count: 'exact', head: true });
+    return { total: count || 0, active: count || 0 };
+  }
+  return { total: data?.total ?? 0, active: data?.active ?? 0 };
+}
+
+/**
+ * Bulk-upsert student records into the registry.
+ * Uses ON CONFLICT (matric_norm) DO UPDATE to handle duplicates gracefully.
+ * Returns a detailed import result.
+ */
+export async function importStudentsToRegistry(
+  rows: RegistryImportRow[],
+  batchLabel?: string
+): Promise<RegistryImportResult> {
+  const db = getClient();
+  const result: RegistryImportResult = {
+    imported: 0,
+    skipped_duplicate: 0,
+    skipped_invalid: 0,
+    errors: [],
+    success: false,
+  };
+
+  if (!rows.length) {
+    result.success = true;
+    return result;
+  }
+
+  const records: {
+    matric_number: string;
+    matric_norm: string;
+    full_name: string;
+    department: string;
+    level: string | null;
+    is_active: boolean;
+    import_batch: string | null;
+  }[] = [];
+
+  const seenNorms = new Set<string>();
+
+  rows.forEach((r, idx) => {
+    const rawMatric = (r.matric_number || '').trim();
+    const rawName = (r.full_name || '').trim();
+
+    if (!rawMatric || !rawName) {
+      result.skipped_invalid++;
+      result.errors.push({
+        row: idx + 1,
+        matric: rawMatric,
+        name: rawName,
+        reason: 'Missing matric number or name',
+      });
+      return;
+    }
+
+    const norm = normalizeMatric(rawMatric);
+
+    if (seenNorms.has(norm)) {
+      result.skipped_duplicate++;
+      result.errors.push({
+        row: idx + 1,
+        matric: rawMatric,
+        name: rawName,
+        reason: 'Duplicate within uploaded file',
+      });
+      return;
+    }
+
+    seenNorms.add(norm);
+    records.push({
+      matric_number: rawMatric.toUpperCase(),
+      matric_norm: norm,
+      full_name: rawName.toUpperCase(),
+      department: (r.department || 'Biochemistry').trim(),
+      level: r.level?.trim() || null,
+      is_active: true,
+      import_batch: batchLabel || new Date().toISOString().slice(0, 10),
+    });
+  });
+
+  if (!records.length) {
+    result.success = true;
+    return result;
+  }
+
+  // Upsert in chunks of 500 to avoid PostgREST body-size limits
+  const CHUNK = 500;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from('student_voter_registry')
+      .upsert(chunk, {
+        onConflict: 'matric_norm',
+        ignoreDuplicates: false, // UPDATE existing so name/level stays fresh
+      })
+      .select('id');
+
+    if (error) {
+      // Record all rows in this chunk as errors
+      chunk.forEach((c, ci) => {
+        result.errors.push({
+          row: i + ci + 1,
+          matric: c.matric_number,
+          name: c.full_name,
+          reason: error.message,
+        });
+        result.skipped_invalid++;
+      });
+    } else {
+      result.imported += data?.length ?? chunk.length;
+    }
+  }
+
+  result.success = true;
+  return result;
+}
+
+/**
+ * Toggle a student's active status in the registry.
+ */
+export async function toggleRegistryStudentActive(
+  id: string,
+  isActive: boolean
+): Promise<boolean> {
+  const db = getClient();
+  const { error } = await db
+    .from('student_voter_registry')
+    .update({ is_active: isActive })
+    .eq('id', id);
+  if (error) throw new Error(`Failed to update registry student: ${error.message}`);
+  return true;
+}
+
+/**
+ * Delete a student from the registry (super_admin only).
+ */
+export async function deleteRegistryStudent(id: string): Promise<boolean> {
+  const db = getClient();
+  const { error } = await db.from('student_voter_registry').delete().eq('id', id);
+  if (error) throw new Error(`Failed to delete registry student: ${error.message}`);
+  return true;
+}
+
+/**
+ * Assign all active registry students to an election.
+ * This creates election_voters rows from student_voter_registry.
+ * Returns the number of students added.
+ */
+export async function addAllRegistryToElection(electionId: string): Promise<number> {
+  const db = getClient();
+
+  // Fetch all active registry students
+  const { data: students, error: fetchErr } = await db
+    .from('student_voter_registry')
+    .select('matric_number, matric_norm, full_name, department, level')
+    .eq('is_active', true);
+
+  if (fetchErr) throw new Error(`Failed to fetch registry: ${fetchErr.message}`);
+  if (!students || students.length === 0) return 0;
+
+  const records = students.map(s => ({
+    election_id: electionId,
+    matric_number: s.matric_norm, // normalised form for the election roster
+    full_name: s.full_name,
+    department: s.department || 'Biochemistry',
+    level: s.level || null,
+    is_eligible: true,
+  }));
+
+  // Upsert in chunks
+  const CHUNK = 500;
+  let total = 0;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const { data, error } = await db
+      .from('election_voters')
+      .upsert(records.slice(i, i + CHUNK), {
+        onConflict: 'election_id,matric_number',
+        ignoreDuplicates: true,
+      })
+      .select('id');
+    if (error) throw new Error(`Failed to add registry to election: ${error.message}`);
+    total += data?.length ?? 0;
+  }
+  return total;
+}
+
+/**
+ * Verify a voter's matric against the live election roster via SECURITY DEFINER RPC.
+ * Callable for both anon and authenticated contexts (students in the portal).
+ * Returns: { found, name, is_eligible }
+ */
+export async function verifyVoterForElection(
+  electionId: string,
+  matric: string
+): Promise<{ found: boolean; name?: string; is_eligible?: boolean; error?: string }> {
+  const db = getClient();
+  const { data, error } = await db.rpc('verify_voter_for_election', {
+    p_election_id: electionId,
+    p_matric: matric,
+  });
+  if (error) return { found: false, error: error.message };
+  return data as { found: boolean; name?: string; is_eligible?: boolean; error?: string };
+}
+
+/**
+ * Seed the student_voter_registry from the MOCK_STUDENTS array in electionDemoData.ts.
+ * Useful for the initial data load — idempotent (upsert on matric_norm).
+ * This is called from the Super Admin dashboard "Seed from Demo Data" action.
+ */
+export async function seedRegistryFromMockStudents(
+  mockStudents: { matric_number: string; name: string; level: string; department: string }[]
+): Promise<RegistryImportResult> {
+  const rows: RegistryImportRow[] = mockStudents.map(s => ({
+    matric_number: s.matric_number,
+    full_name: s.name,
+    level: s.level,
+    department: s.department,
+  }));
+  return importStudentsToRegistry(rows, 'seed-mock-2026');
 }
 
 // ==========================================

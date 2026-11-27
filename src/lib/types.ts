@@ -201,6 +201,34 @@ export interface PaymentRecord {
   updated_at: string;
 }
 
+export interface StudentVoterRegistry {
+  id: string;
+  matric_number: string;
+  matric_norm: string;
+  full_name: string;
+  department: string;
+  level?: string;
+  is_active: boolean;
+  import_batch?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegistryImportRow {
+  matric_number: string;
+  full_name: string;
+  level?: string;
+  department?: string;
+}
+
+export interface RegistryImportResult {
+  imported: number;
+  skipped_duplicate: number;
+  skipped_invalid: number;
+  errors: { row: number; matric: string; name: string; reason: string }[];
+  success: boolean;
+}
+
 export interface StaffAccount {
   id: string;
   name: string;

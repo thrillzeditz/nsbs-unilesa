@@ -4,56 +4,104 @@ import React, { useState, useEffect } from 'react';
 import { 
   Vote as VoteIcon, ShieldCheck, AlertCircle, CheckCircle, ArrowRight, 
   ArrowLeft, Lock, RefreshCw, UserCheck, Check, Sparkles, AlertTriangle,
-  Info, ExternalLink, Award, FileText, ChevronRight
+  Info, ExternalLink, Award, FileText, ChevronRight, Loader2
 } from 'lucide-react';
 import { 
-  MOCK_POSITIONS, DemoStudent, DemoCandidate,
-  verifyStudentMatric, submitDemoVote, resetDemoElectionState
-} from '@/lib/electionDemoData';
-import { 
   checkVoterAccreditationStatus, submitElectionBallotRPC, getElections, getSettings,
-  verifyVoterForElection
+  verifyVoterForElection, getCandidates
 } from '@/lib/db';
+import { Candidate, Election } from '@/lib/types';
 import { isElectoralBodyExempt, EXEMPTION_MESSAGE } from '@/lib/electionSecurity';
 
 type PortalStep = 'landing' | 'verify' | 'verified_confirm' | 'already_voted' | 'voting' | 'review' | 'success';
+
+interface VoterStudent {
+  matric_number: string;
+  name: string;
+  level: string;
+  department: string;
+}
+
+interface PositionGroup {
+  id: string;
+  title: string;
+  candidates: Candidate[];
+}
 
 export default function ElectionPortal() {
   const [currentStep, setCurrentStep] = useState<PortalStep>('landing');
   const [matricInput, setMatricInput] = useState('');
   const [verificationError, setVerificationError] = useState<string | null>(null);
-  const [verifiedStudent, setVerifiedStudent] = useState<DemoStudent | null>(null);
+  const [verifiedStudent, setVerifiedStudent] = useState<VoterStudent | null>(null);
   const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string>>({}); // { positionTitle: candidateId }
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [referenceCode, setReferenceCode] = useState<string>('');
-  const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
+  
+  // Live Supabase Election Data States
+  const [activeElection, setActiveElection] = useState<Election | null>(null);
+  const [positions, setPositions] = useState<PositionGroup[]>([]);
+  const [loadingElection, setLoadingElection] = useState<boolean>(true);
   // null = loading; false = closed (default / fail-closed); true = open
   const [portalEnabled, setPortalEnabled] = useState<boolean | null>(null);
 
-  // Check for active live election on mount
-  useEffect(() => {
-    async function loadActiveElection() {
-      try {
-        const s = await getSettings();
-        const enabled = s?.election_portal_enabled === true;
-        setPortalEnabled(enabled);
-        if (!enabled) return;
-      } catch {
-        setPortalEnabled(false);
+  // Load active election & candidates from Supabase
+  const loadActiveElection = async () => {
+    setLoadingElection(true);
+    try {
+      // 1. Verify global election portal toggle
+      const s = await getSettings();
+      const enabled = s?.election_portal_enabled === true;
+      setPortalEnabled(enabled);
+
+      if (!enabled) {
+        setLoadingElection(false);
         return;
       }
-      try {
-        const elections = await getElections();
-        const openElection = elections.find(e => e.status === 'open');
-        if (openElection) {
-          setActiveElectionId(openElection.id);
-        }
-      } catch (err) {
-        // Fallback to local mode silently
+
+      // 2. Fetch live elections from Supabase
+      const elections = await getElections();
+      const openElection = elections.find(e => e.status === 'open');
+
+      if (openElection) {
+        setActiveElection(openElection);
+
+        // 3. Fetch candidates for this published election
+        const cands = await getCandidates(openElection.id);
+
+        // 4. Group candidates by position
+        const posMap = new Map<string, Candidate[]>();
+        (cands || []).forEach(c => {
+          const posTitle = (c.position || '').trim();
+          if (!posTitle) return;
+          if (!posMap.has(posTitle)) {
+            posMap.set(posTitle, []);
+          }
+          posMap.get(posTitle)!.push(c);
+        });
+
+        const posList: PositionGroup[] = Array.from(posMap.entries()).map(([title, candidateList]) => ({
+          id: title.toLowerCase().replace(/\s+/g, '-'),
+          title,
+          candidates: candidateList
+        }));
+
+        setPositions(posList);
+      } else {
+        setActiveElection(null);
+        setPositions([]);
       }
+    } catch (err) {
+      console.error('Failed to load active election from Supabase:', err);
+      setActiveElection(null);
+      setPositions([]);
+    } finally {
+      setLoadingElection(false);
     }
+  };
+
+  useEffect(() => {
     loadActiveElection();
   }, []);
 
@@ -73,73 +121,50 @@ export default function ElectionPortal() {
       return;
     }
 
-    // If live election is connected, verify against the actual election roster
-    if (activeElectionId) {
-      try {
-        // 1. Check if already voted (accreditation table — anon RLS returns false for unvoted)
-        const accCheck = await checkVoterAccreditationStatus(activeElectionId, value);
-        if (accCheck.isExempt || accCheck.error === EXEMPTION_MESSAGE) {
-          setVerificationError(EXEMPTION_MESSAGE);
-          return;
-        }
-        if (accCheck.accredited) {
-          setVerifiedStudent({
-            matric_number: value.toUpperCase(),
-            name: 'Accredited Voter',
-            level: 'Undergraduate',
-            department: 'Biochemistry'
-          });
-          setCurrentStep('already_voted');
-          return;
-        }
+    if (!activeElection) {
+      setVerificationError('No active election is currently open for voting.');
+      return;
+    }
 
-        // 2. Verify against the live election_voters roster (DB-backed, not MOCK_STUDENTS)
-        const rosterCheck = await verifyVoterForElection(activeElectionId, value);
-        if (rosterCheck.found) {
-          if (!rosterCheck.is_eligible) {
-            setVerificationError('Your student record has been marked ineligible to vote in this election.');
-            return;
-          }
-          setVerifiedStudent({
-            matric_number: value.toUpperCase(),
-            name: rosterCheck.name || 'Accredited Student',
-            level: 'Undergraduate',
-            department: 'Biochemistry'
-          });
-          setCurrentStep('verified_confirm');
-          return;
-        }
-
-        // Not found in live election roster — do not fall through to MOCK_STUDENTS
-        setVerificationError('Your matriculation number is not on the accredited voter roster for this election. Please contact the electoral committee.');
+    try {
+      // 1. Check if already voted (accreditation record in database)
+      const accCheck = await checkVoterAccreditationStatus(activeElection.id, value);
+      if (accCheck.isExempt || accCheck.error === EXEMPTION_MESSAGE) {
+        setVerificationError(EXEMPTION_MESSAGE);
         return;
-      } catch {
-        // Network/RPC failure — fall through to local demo check with a warning
-        console.warn('Live election verification failed; falling back to demo mode.');
       }
-    }
+      if (accCheck.accredited) {
+        setVerifiedStudent({
+          matric_number: value.toUpperCase().trim(),
+          name: 'Accredited Voter',
+          level: 'Undergraduate',
+          department: 'Biochemistry'
+        });
+        setCurrentStep('already_voted');
+        return;
+      }
 
-    const result = verifyStudentMatric(value);
+      // 2. Verify against the live election voter roster in Supabase
+      const rosterCheck = await verifyVoterForElection(activeElection.id, value);
+      if (rosterCheck.found) {
+        if (!rosterCheck.is_eligible) {
+          setVerificationError('Your student record has been marked ineligible to vote in this election.');
+          return;
+        }
+        setVerifiedStudent({
+          matric_number: value.toUpperCase().trim(),
+          name: rosterCheck.name || 'Accredited Student',
+          level: 'Undergraduate',
+          department: 'Biochemistry'
+        });
+        setCurrentStep('verified_confirm');
+        return;
+      }
 
-    if (result.isExempt || result.error === EXEMPTION_MESSAGE) {
-      setVerificationError(EXEMPTION_MESSAGE);
-      return;
-    }
-
-    if (!result.success) {
-      setVerificationError(result.error || 'Matric number could not be verified. Please check the number and try again.');
-      return;
-    }
-
-    if (result.alreadyVoted) {
-      setVerifiedStudent(result.student || null);
-      setCurrentStep('already_voted');
-      return;
-    }
-
-    if (result.student) {
-      setVerifiedStudent(result.student);
-      setCurrentStep('verified_confirm');
+      setVerificationError('Your matriculation number is not on the accredited voter roster for this election. Please contact the electoral committee.');
+    } catch (err) {
+      console.error('Verification error:', err);
+      setVerificationError('Unable to complete voter verification. Please check your network and try again.');
     }
   };
 
@@ -159,8 +184,8 @@ export default function ElectionPortal() {
       return;
     }
 
-    // Validate all positions are chosen
-    const unselectedPositions = MOCK_POSITIONS.filter(pos => !selectedCandidates[pos.title]);
+    // Validate that all positions have a candidate chosen
+    const unselectedPositions = positions.filter(pos => !selectedCandidates[pos.title]);
     
     if (unselectedPositions.length > 0) {
       setValidationError(`Please select a candidate for all positions. Missing: ${unselectedPositions.map(p => p.title).join(', ')}.`);
@@ -173,7 +198,7 @@ export default function ElectionPortal() {
 
   // 4. ATOMIC SUBMISSION HANDLER
   const handleConfirmSubmit = async () => {
-    if (!verifiedStudent) return;
+    if (!verifiedStudent || !activeElection) return;
     if (portalEnabled !== true) {
       setShowConfirmModal(false);
       return;
@@ -192,52 +217,33 @@ export default function ElectionPortal() {
     try {
       const generatedRef = `NSBS-2026-${Math.floor(1000 + Math.random() * 9000)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
       
-      // If live election active, attempt atomic RPC
-      if (activeElectionId) {
-        const ballotItems = Object.entries(selectedCandidates).map(([posTitle, candId]) => ({
-          position_id: posTitle,
-          candidate_id: candId
-        }));
+      const ballotItems = Object.entries(selectedCandidates).map(([posTitle, candId]) => ({
+        position_id: posTitle,
+        candidate_id: candId
+      }));
 
-        const rpcRes = await submitElectionBallotRPC(
-          activeElectionId,
-          verifiedStudent.matric_number,
-          ballotItems,
-          generatedRef
-        );
+      const rpcRes = await submitElectionBallotRPC(
+        activeElection.id,
+        verifiedStudent.matric_number,
+        ballotItems,
+        generatedRef
+      );
 
-        if (rpcRes.success) {
-          // Also sync local demo engine state for UI consistency
-          await submitDemoVote(verifiedStudent.matric_number, selectedCandidates);
-          setReferenceCode(rpcRes.referenceCode || generatedRef);
-          setShowConfirmModal(false);
-          setCurrentStep('success');
-          return;
-        } else if (rpcRes.error && rpcRes.error.toLowerCase().includes('already voted')) {
-          alert('This matriculation number has already voted in this election.');
-          setShowConfirmModal(false);
-          setCurrentStep('already_voted');
-          return;
-        } else if (rpcRes.error) {
-          alert(`Submission rejected: ${rpcRes.error}`);
-          setShowConfirmModal(false);
-          return;
-        }
-      }
-
-      // Fallback to local demo repository
-      const res = await submitDemoVote(verifiedStudent.matric_number, selectedCandidates);
-      if (res.success && res.referenceCode) {
-        setReferenceCode(res.referenceCode);
+      if (rpcRes.success) {
+        setReferenceCode(rpcRes.referenceCode || generatedRef);
         setShowConfirmModal(false);
         setCurrentStep('success');
+      } else if (rpcRes.error && rpcRes.error.toLowerCase().includes('already voted')) {
+        alert('This matriculation number has already voted in this election.');
+        setShowConfirmModal(false);
+        setCurrentStep('already_voted');
       } else {
-        alert(res.error || 'Failed to submit vote.');
+        alert(rpcRes.error || 'Failed to submit ballot. Please contact the electoral committee.');
         setShowConfirmModal(false);
       }
     } catch (err) {
       console.error('Submission error:', err);
-      alert('An error occurred while submitting your ballot.');
+      alert('An error occurred while submitting your ballot. Please try again.');
       setShowConfirmModal(false);
     } finally {
       setIsSubmitting(false);
@@ -256,6 +262,7 @@ export default function ElectionPortal() {
     setReferenceCode('');
   };
 
+  // State A: Portal Closed or Checking
   if (portalEnabled !== true) {
     return (
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
@@ -287,6 +294,63 @@ export default function ElectionPortal() {
     );
   }
 
+  // State B: Portal is Enabled, but still loading election data
+  if (loadingElection) {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-12 text-center space-y-4">
+        <Loader2 className="w-10 h-10 text-secondary animate-spin mx-auto" />
+        <h4 className="text-base font-extrabold text-slate-800">Connecting to Election Board…</h4>
+        <p className="text-xs text-slate-500">Retrieving official election candidates and configuration.</p>
+      </div>
+    );
+  }
+
+  // State C: Portal is Enabled, but No Active Election or Candidates Published
+  if (!activeElection || positions.length === 0) {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        {/* Portal Header / Brand Bar */}
+        <div className="bg-slate-900 text-white p-6 sm:p-7 border-b border-slate-800 relative overflow-hidden">
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 bg-slate-800 px-2.5 py-0.5 rounded-full border border-slate-700">
+                  NSBS Official E-Voting
+                </span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                <VoteIcon className="w-6 h-6 text-secondary" /> Student Election Portal
+              </h3>
+              <p className="text-xs text-slate-300 font-normal max-w-lg">
+                Official electronic voting platform for the Nigerian Society of Biochemistry Students.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 sm:self-center bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-2xl shrink-0">
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              <span className="text-xs font-bold text-amber-300">No Active Election</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Empty State Body */}
+        <div className="p-8 sm:p-12 text-center space-y-4">
+          <div className="w-16 h-16 rounded-3xl bg-slate-100 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto shadow-2xs">
+            <VoteIcon className="w-8 h-8 text-slate-400" />
+          </div>
+          <div className="space-y-1.5 max-w-md mx-auto">
+            <h4 className="text-xl font-extrabold text-slate-900">
+              No Active Election Published
+            </h4>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              There is currently no published election open for voting on the election board. Once the Electoral Committee publishes an active election and accredited candidates, the voting portal will open here automatically.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // State D: Active Live Election from Supabase
   return (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
       
@@ -299,7 +363,7 @@ export default function ElectionPortal() {
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                NSBS ELECTION 2026
+                {activeElection.title.toUpperCase()}
               </span>
               <span className="text-[10px] text-slate-400 font-semibold uppercase">Official E-Voting</span>
             </div>
@@ -307,7 +371,7 @@ export default function ElectionPortal() {
               <VoteIcon className="w-6 h-6 text-secondary" /> Student Election Portal
             </h3>
             <p className="text-xs text-slate-300 font-normal max-w-lg">
-              Participate in the election of the next NSBS executive team.
+              {activeElection.description || 'Participate in the election of the next NSBS executive team.'}
             </p>
           </div>
 
@@ -332,11 +396,11 @@ export default function ElectionPortal() {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-extrabold text-emerald-900 uppercase tracking-wide">
-                  Election Status: Voting Open
+                  Election Status: Voting Open &bull; {activeElection.title}
                 </span>
               </div>
               <p className="text-xs text-emerald-800/90 leading-relaxed font-normal">
-                Accredited Biochemistry students can now cast their democratic ballot for the 2026/2027 NSBS Departmental Executive Council.
+                {activeElection.description || 'Accredited Biochemistry students can now cast their democratic ballot.'}
               </p>
             </div>
           </div>
@@ -349,23 +413,22 @@ export default function ElectionPortal() {
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
               <li className="flex items-start gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                 <ShieldCheck className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
-                <span>Only eligible Biochemistry students can vote.</span>
+                <span>Only eligible Biochemistry students on the voter roster can vote.</span>
               </li>
               <li className="flex items-start gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                 <UserCheck className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
-                <span>Your matric number will be verified before voting.</span>
+                <span>Your matric number will be verified against the official register.</span>
               </li>
               <li className="flex items-start gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                 <Lock className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
-                <span>Each eligible student can vote once.</span>
+                <span>Each eligible student can vote once. Secrecy is strictly guaranteed.</span>
               </li>
               <li className="flex items-start gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                 <AlertCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                <span>Submitted votes cannot be changed.</span>
+                <span>Submitted votes are final and cannot be modified.</span>
               </li>
             </ul>
           </div>
-
 
           {/* Primary Action Button */}
           <div className="pt-2">
@@ -406,7 +469,7 @@ export default function ElectionPortal() {
               Verify Your Student Identity
             </h4>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Enter your matriculation number to verify your eligibility to vote in the NSBS 2026 departmental election.
+              Enter your matriculation number to verify your eligibility to vote in {activeElection.title}.
             </p>
           </div>
 
@@ -472,7 +535,6 @@ export default function ElectionPortal() {
               <span>Verify Matric Number</span>
             </button>
           </form>
-
 
         </div>
       )}
@@ -566,7 +628,7 @@ export default function ElectionPortal() {
                 You Have Already Voted
               </h4>
               <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                Your vote for this election has already been submitted and audited. Under the NSBS Electoral Charter, each accredited student is permitted exactly one ballot submission.
+                Your vote for {activeElection.title} has already been submitted and audited. Under the NSBS Electoral Charter, each accredited student is permitted exactly one ballot submission.
               </p>
             </div>
 
@@ -623,7 +685,7 @@ export default function ElectionPortal() {
           <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <span className="text-[10px] font-extrabold text-secondary uppercase tracking-widest">
-                NSBS ELECTION 2026
+                {activeElection.title.toUpperCase()}
               </span>
               <h4 className="text-2xl font-extrabold text-primary tracking-tight">
                 Cast Your Vote
@@ -633,13 +695,13 @@ export default function ElectionPortal() {
               </p>
             </div>
             <div className="bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600">
-              {Object.keys(selectedCandidates).length} of {MOCK_POSITIONS.length} positions selected
+              {Object.keys(selectedCandidates).length} of {positions.length} positions selected
             </div>
           </div>
 
           {/* Position Cards Grid */}
           <div className="space-y-8">
-            {MOCK_POSITIONS.map((position) => {
+            {positions.map((position) => {
               const selectedCandidateId = selectedCandidates[position.title];
 
               return (
@@ -690,9 +752,13 @@ export default function ElectionPortal() {
                             <div className="relative w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
-                                src={candidate.photo_url}
+                                src={candidate.photo_url || '/logo_nsbs.jpg'}
                                 alt={candidate.name}
                                 className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  // Fallback image if photo url fails to load
+                                  (e.target as HTMLImageElement).src = '/logo_nsbs.jpg';
+                                }}
                               />
                             </div>
                             <div className="flex-grow space-y-1">
@@ -703,7 +769,7 @@ export default function ElectionPortal() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                  {candidate.level}
+                                  Candidate
                                 </span>
                                 <span className="text-[10px] font-semibold text-slate-400">
                                   Biochemistry
@@ -713,11 +779,13 @@ export default function ElectionPortal() {
                           </div>
 
                           {/* Manifesto Quote */}
-                          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-150">
-                            <p className="text-[11px] text-slate-600 italic leading-relaxed">
-                              &ldquo;{candidate.manifesto}&rdquo;
-                            </p>
-                          </div>
+                          {candidate.manifesto && (
+                            <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-150">
+                              <p className="text-[11px] text-slate-600 italic leading-relaxed">
+                                &ldquo;{candidate.manifesto}&rdquo;
+                              </p>
+                            </div>
+                          )}
 
                           {/* Select Action Radio / Button */}
                           <div className="flex items-center justify-between pt-1 border-t border-slate-150">
@@ -814,13 +882,13 @@ export default function ElectionPortal() {
               Review Your Votes
             </h4>
             <p className="text-xs text-slate-500">
-              Please inspect your choices for all {MOCK_POSITIONS.length} executive positions carefully before final submission.
+              Please inspect your choices for all {positions.length} executive positions carefully before final submission.
             </p>
           </div>
 
           {/* Selected Candidates Summary List */}
           <div className="divide-y divide-slate-150 border border-slate-200 rounded-3xl bg-slate-50 overflow-hidden shadow-2xs">
-            {MOCK_POSITIONS.map((pos) => {
+            {positions.map((pos) => {
               const chosenCandId = selectedCandidates[pos.title];
               const cand = pos.candidates.find(c => c.id === chosenCandId);
 
@@ -836,11 +904,18 @@ export default function ElectionPortal() {
                       <>
                         <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={cand.photo_url} alt={cand.name} className="w-full h-full object-cover" />
+                          <img 
+                            src={cand.photo_url || '/logo_nsbs.jpg'} 
+                            alt={cand.name} 
+                            className="w-full h-full object-cover" 
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/logo_nsbs.jpg';
+                            }}
+                          />
                         </div>
                         <div className="space-y-0.5 flex-grow">
                           <p className="font-extrabold text-slate-900 text-xs sm:text-sm">{cand.name}</p>
-                          <p className="text-[10px] text-slate-500 font-semibold">{cand.level} &bull; Biochemistry</p>
+                          <p className="text-[10px] text-slate-500 font-semibold">{pos.title} &bull; Biochemistry</p>
                         </div>
                         <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-full shrink-0">
                           Confirmed
@@ -902,7 +977,7 @@ export default function ElectionPortal() {
                 Confirm Your Vote
               </h4>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Once your vote is submitted, it cannot be changed. Are you sure you are ready to seal your electronic ballot?
+                Once your vote is submitted for {activeElection.title}, it cannot be changed. Are you sure you are ready to seal your electronic ballot?
               </p>
             </div>
 
@@ -966,11 +1041,11 @@ export default function ElectionPortal() {
                 ✓ Vote Submitted Successfully
               </h4>
               <p className="text-xs sm:text-sm text-emerald-100 max-w-md mx-auto leading-relaxed">
-                Thank you for participating in the NSBS Election 2026. Your democratic participation powers our biochemistry community.
+                Thank you for participating in {activeElection.title}. Your democratic participation powers our biochemistry community.
               </p>
             </div>
 
-            {/* Reference Number Box (Candidate selections are strictly NOT shown as required) */}
+            {/* Reference Number Box */}
             <div className="bg-white/10 backdrop-blur-md p-4.5 rounded-2xl border border-white/25 max-w-sm mx-auto space-y-1">
               <span className="text-[10px] uppercase font-bold text-emerald-200 tracking-wider block">
                 Official Ballot Reference Number

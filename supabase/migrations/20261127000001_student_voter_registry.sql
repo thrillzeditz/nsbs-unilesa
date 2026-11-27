@@ -91,19 +91,153 @@ CREATE POLICY "registry: admin read"
   ON public.student_voter_registry FOR SELECT TO authenticated
   USING (public.is_any_admin());
 
--- Only super_admin can insert / update / delete
-CREATE POLICY "registry: super_admin insert"
+-- Any admin can insert / update / delete
+CREATE POLICY "registry: admin insert"
   ON public.student_voter_registry FOR INSERT TO authenticated
-  WITH CHECK (public.is_super_admin());
+  WITH CHECK (public.is_any_admin());
 
-CREATE POLICY "registry: super_admin update"
+CREATE POLICY "registry: admin update"
   ON public.student_voter_registry FOR UPDATE TO authenticated
-  USING (public.is_super_admin())
-  WITH CHECK (public.is_super_admin());
+  USING (public.is_any_admin())
+  WITH CHECK (public.is_any_admin());
 
-CREATE POLICY "registry: super_admin delete"
+CREATE POLICY "registry: admin delete"
   ON public.student_voter_registry FOR DELETE TO authenticated
-  USING (public.is_super_admin());
+  USING (public.is_any_admin());
+
+
+-- ====================================================================
+-- 2b. HIGH-PERFORMANCE SECURITY DEFINER BULK IMPORT RPC
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION public.import_student_registry_records(
+  p_students jsonb,
+  p_batch    text DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inserted int := 0;
+  v_batch    text;
+BEGIN
+  -- Authorization check: must be an active admin
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_roles
+    WHERE user_id = auth.uid() AND is_active = true
+  ) THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Unauthorized. Administrative credentials required.'
+    );
+  END IF;
+
+  v_batch := coalesce(nullif(trim(p_batch), ''), to_char(now(), 'YYYY-MM-DD'));
+
+  -- Atomic bulk upsert from JSON array
+  WITH inserted_rows AS (
+    INSERT INTO public.student_voter_registry (
+      matric_number, matric_norm, full_name, department, level, is_active, import_batch
+    )
+    SELECT
+      upper(trim(x.matric_number)),
+      regexp_replace(upper(trim(x.matric_number)), '\s+', '', 'g'),
+      upper(trim(x.full_name)),
+      coalesce(nullif(trim(x.department), ''), 'Biochemistry'),
+      nullif(trim(x.level), ''),
+      true,
+      v_batch
+    FROM jsonb_to_recordset(p_students) AS x(
+      matric_number text,
+      full_name text,
+      department text,
+      level text
+    )
+    WHERE x.matric_number IS NOT NULL AND trim(x.matric_number) <> ''
+      AND x.full_name IS NOT NULL AND trim(x.full_name) <> ''
+    ON CONFLICT (matric_norm) DO UPDATE
+    SET
+      full_name = EXCLUDED.full_name,
+      department = EXCLUDED.department,
+      level = coalesce(EXCLUDED.level, student_voter_registry.level),
+      is_active = true,
+      updated_at = now()
+    RETURNING id
+  )
+  SELECT count(*) INTO v_inserted FROM inserted_rows;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'imported', v_inserted
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object(
+    'success', false,
+    'error', SQLERRM
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.import_student_registry_records(jsonb, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_student_registry_records(jsonb, text) FROM anon;
+REVOKE ALL ON FUNCTION public.import_student_registry_records(jsonb, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.import_student_registry_records(jsonb, text) TO authenticated;
+
+
+-- ====================================================================
+-- 2c. ATOMIC ASSIGN REGISTRY TO ELECTION RPC
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION public.assign_registry_to_election(
+  p_election_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inserted int := 0;
+BEGIN
+  -- Authorization check: must be an active admin
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_roles
+    WHERE user_id = auth.uid() AND is_active = true
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized.');
+  END IF;
+
+  WITH inserted AS (
+    INSERT INTO public.election_voters (
+      election_id, matric_number, full_name, department, level, is_eligible
+    )
+    SELECT
+      p_election_id,
+      svr.matric_norm,
+      svr.full_name,
+      svr.department,
+      svr.level,
+      true
+    FROM public.student_voter_registry svr
+    WHERE svr.is_active = true
+    ON CONFLICT (election_id, matric_number) DO NOTHING
+    RETURNING id
+  )
+  SELECT count(*) INTO v_inserted FROM inserted;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'count', v_inserted
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.assign_registry_to_election(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.assign_registry_to_election(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.assign_registry_to_election(uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.assign_registry_to_election(uuid) TO authenticated;
 
 
 -- ====================================================================

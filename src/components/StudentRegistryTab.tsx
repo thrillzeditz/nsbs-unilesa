@@ -261,8 +261,17 @@ export default function StudentRegistryTab({ elections, isSuperAdmin }: Props) {
     setSeedResult(null);
     try {
       const result = await seedRegistryFromMockStudents(MOCK_STUDENTS);
-      setSeedResult(`✓ Done — ${result.imported} imported/updated, ${result.skipped_duplicate} skipped (duplicates), ${result.skipped_invalid} invalid.`);
-      fetchData(true);
+
+      if (result.imported > 0) {
+        setSeedResult(`✓ Done — ${result.imported} students successfully saved to the voter registry.`);
+        fetchData(true);
+      } else {
+        const reason = result.errors[0]?.reason || 'Database operation was rejected.';
+        setSeedResult(
+          `✗ Seeding failed: ${reason}. ` +
+          `Please ensure the updated student_voter_registry migration has been executed in the Supabase SQL Editor.`
+        );
+      }
     } catch (err: unknown) {
       setSeedResult(`✗ Failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

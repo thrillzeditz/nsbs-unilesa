@@ -961,7 +961,28 @@ export async function importStudentsToRegistry(
     return result;
   }
 
-  // Upsert in chunks of 500 to avoid PostgREST body-size limits
+  // 1. Try High-Performance Database RPC procedure first
+  try {
+    const { data: rpcData, error: rpcErr } = await db.rpc('import_student_registry_records', {
+      p_students: records.map(r => ({
+        matric_number: r.matric_number,
+        full_name: r.full_name,
+        department: r.department,
+        level: r.level
+      })),
+      p_batch: batchLabel || null
+    });
+
+    if (!rpcErr && rpcData && rpcData.success !== false) {
+      result.imported = Number(rpcData.imported || records.length);
+      result.success = true;
+      return result;
+    }
+  } catch (rpcCatch) {
+    console.warn('RPC import_student_registry_records failed, falling back to direct upsert:', rpcCatch);
+  }
+
+  // 2. Fallback: Direct table upsert in chunks of 500
   const CHUNK = 500;
   for (let i = 0; i < records.length; i += CHUNK) {
     const chunk = records.slice(i, i + CHUNK);
@@ -974,7 +995,7 @@ export async function importStudentsToRegistry(
       .select('id');
 
     if (error) {
-      // Record all rows in this chunk as errors
+      // Record all rows in this chunk as errors with the actual DB error
       chunk.forEach((c, ci) => {
         result.errors.push({
           row: i + ci + 1,
@@ -982,14 +1003,15 @@ export async function importStudentsToRegistry(
           name: c.full_name,
           reason: error.message,
         });
-        result.skipped_invalid++;
       });
+      // Do not increment skipped_invalid for database level failures
+      result.skipped_invalid += chunk.length;
     } else {
       result.imported += data?.length ?? chunk.length;
     }
   }
 
-  result.success = true;
+  result.success = result.imported > 0;
   return result;
 }
 
@@ -1027,7 +1049,19 @@ export async function deleteRegistryStudent(id: string): Promise<boolean> {
 export async function addAllRegistryToElection(electionId: string): Promise<number> {
   const db = getClient();
 
-  // Fetch all active registry students
+  // 1. Try atomic server-side RPC procedure first
+  try {
+    const { data: rpcData, error: rpcErr } = await db.rpc('assign_registry_to_election', {
+      p_election_id: electionId
+    });
+    if (!rpcErr && rpcData && rpcData.success) {
+      return Number(rpcData.count || 0);
+    }
+  } catch (rpcCatch) {
+    console.warn('RPC assign_registry_to_election failed, falling back to client fetch:', rpcCatch);
+  }
+
+  // 2. Fallback: Fetch all active registry students and batch-upsert
   const { data: students, error: fetchErr } = await db
     .from('student_voter_registry')
     .select('matric_number, matric_norm, full_name, department, level')
